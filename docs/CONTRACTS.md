@@ -277,6 +277,29 @@ a broken test.
 
 ---
 
+## 3b. Where the models and the schema deliberately differ
+
+`shared/bp_core/models.py` is the wire format and `db/migrations/001_init.sql`
+is storage. They are close but not identical, on purpose. These divergences are
+intended — do not "fix" them, and do not add a field to close one.
+
+| Model | Table | Difference | Why |
+|---|---|---|---|
+| `Alert.sample_mentions` | `alerts.sample_mention_ids` | objects on the wire, ids in storage | DronaHQ renders the alert without a second fetch; Postgres does not duplicate mention rows. |
+| `Topic.mention_ids`, `Topic.top_examples` | `topic_mentions` join table | list on the wire, rows in storage | The join is queryable; the artifact is self-contained. |
+| `BrandProfile.name`, `.website` | on `brands`, not `brand_profiles` | denormalised onto the wire | A profile artifact must be readable alone. Profiles are versioned, brand identity is not. |
+| every model | `created_at`, `collected_at`, `confirmed_at` | storage-only | Set by Postgres defaults. No agent writes them. |
+| `ReplyDraft.requires_human_approval` | no column | constant `true` | It is an invariant, not state. Storing it would imply it could be false. |
+
+Everything else must match. Two fields exist in the models **only** because the
+schema requires them, and both are idempotency keys — omit either and the
+insert fails against a `NOT NULL` unique constraint:
+
+- `Alert.dedupe_key` backs `alerts UNIQUE (brand_id, dedupe_key)`.
+- `RunRecord.time_bucket` backs `runs UNIQUE (brand_id, kind, time_bucket)`.
+
+---
+
 ## 4. Naming rules that prevent merge pain
 
 - Agent directories: `agents/bp-<name>/`. Module inside: `main.py`.

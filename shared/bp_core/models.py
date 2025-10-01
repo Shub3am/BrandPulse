@@ -260,6 +260,10 @@ class Alert(BaseModel):
     evidence: list[AlertEvidence] = Field(default_factory=list)
     sample_mentions: list[Mention] = Field(default_factory=list)
     status: AlertStatus = AlertStatus.OPEN
+    # Suppresses a duplicate alert for the same rule in the same bucket.
+    # Format is f"{kind}:{source}:{hour_bucket}" and it backs
+    # alerts.UNIQUE (brand_id, dedupe_key), so it is required, not optional.
+    dedupe_key: str
     created_at: datetime
 
 
@@ -277,6 +281,9 @@ class ReplyDraft(BaseModel):
     tone: str
     # Guardrail phrases that were forbidden when drafting, echoed for audit.
     do_not_say: list[str] = Field(default_factory=list)
+    # Moved by a human in DronaHQ. Nothing in this repo advances it past
+    # "approved", because nothing in this repo posts.
+    status: Literal["draft", "approved", "rejected", "sent"] = "draft"
     requires_human_approval: bool = True
 
 
@@ -333,6 +340,9 @@ class RunRecord(BaseModel):
     id: str
     brand_id: str
     kind: RunKind
+    # Idempotency key, backing runs.UNIQUE (brand_id, kind, time_bucket).
+    # Produced by bp_core.stats.hour_bucket or day_bucket.
+    time_bucket: str
     started_at: datetime
     finished_at: datetime | None = None
     status: RunStatus = RunStatus.RUNNING
