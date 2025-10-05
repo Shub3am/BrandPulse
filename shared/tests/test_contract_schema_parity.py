@@ -38,12 +38,9 @@ PARITY_CASES: list[tuple[type[BaseModel], str, set[str], set[str]]] = [
 ]
 
 
-def _table_columns(table: str) -> set[str]:
-    sql = MIGRATION.read_text()
-    match = re.search(rf"CREATE TABLE {table} \((.*?)\n\);", sql, re.S)
-    assert match, f"no CREATE TABLE {table} in {MIGRATION}"
+def _parse_columns(body: str) -> set[str]:
     columns = set()
-    for line in match.group(1).splitlines():
+    for line in body.splitlines():
         line = line.strip()
         if not line or line.startswith("--"):
             continue
@@ -52,6 +49,14 @@ def _table_columns(table: str) -> set[str]:
             continue
         columns.add(first)
     return columns
+
+
+TABLE_COLUMNS: dict[str, set[str]] = {
+    table: _parse_columns(body)
+    for table, body in re.findall(
+        r"CREATE TABLE (\w+) \((.*?)\n\);", MIGRATION.read_text(), re.S
+    )
+}
 
 
 @pytest.mark.parametrize(
@@ -63,7 +68,7 @@ def test_model_matches_table(
     model: type[BaseModel], table: str, model_only: set[str], sql_only: set[str]
 ) -> None:
     fields = set(model.model_fields)
-    columns = _table_columns(table)
+    columns = TABLE_COLUMNS[table]
     assert (fields - columns) - model_only == set(), (
         f"{model.__name__} has fields with no column in {table}"
     )
