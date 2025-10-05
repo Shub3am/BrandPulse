@@ -168,6 +168,28 @@ Each track gets a git worktree and a branch. Full briefs in `docs/tracks/`.
 
 **Integration:** each track opens a PR into `main` at its phase gate. B1 is the
 integrator and resolves conflicts. Nobody merges their own track into another's.
+---
+
+## Worktrees
+
+Five worktrees, all branched from the `phase0-contracts` tag so every track
+starts on identical frozen interfaces.
+
+| Track | Branch | Worktree |
+|---|---|---|
+| B1 | `track/b1-core` | `../brandpulse-b1-core` |
+| B2 | `track/b2-collect` | `../brandpulse-b2-collect` |
+| B3 | `track/b3-intel` | `../brandpulse-b3-intel` |
+| B4 | `track/b4-pipeline` | `../brandpulse-b4-pipeline` |
+| B5 | `track/b5-deploy` | `../brandpulse-b5-deploy` |
+
+Work only inside your own worktree. `git worktree list` shows them all.
+
+**The stash stack is shared across worktrees.** Never use bare `git stash` or
+`git stash pop`. Set work aside with a WIP commit instead.
+
+Rebase onto `main` at your phase gate, then open a PR. B1 is the integrator.
+
 
 ---
 
