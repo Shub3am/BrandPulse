@@ -18,6 +18,7 @@ then [docs/CONTRACTS.md](docs/CONTRACTS.md). Spec: [docs/BRIEF.md](docs/BRIEF.md
 | `demo/` | Seed, replay, crisis injection, the 2-minute run. [CLAUDE.md](demo/CLAUDE.md) |
 | `eval/` | Classifier accuracy and real cost per brand-day. [CLAUDE.md](eval/CLAUDE.md) |
 | `dronahq/` | Exported WhatsApp agent and dashboard app. [CLAUDE.md](dronahq/CLAUDE.md) |
+| `web/` | Next.js product dashboard. [CLAUDE.md](web/CLAUDE.md) |
 | `docs/` | Contracts, research, track briefs, architecture, pricing. |
 
 ## Run, test, deploy
