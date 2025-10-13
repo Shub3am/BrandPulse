@@ -18,6 +18,11 @@
 // requires_human_approval field at all, because it is an invariant rather than
 // state, and its MarshalJSON always emits true.
 //
+// One consequence: ReplyDraft does not round-trip. Marshal emits
+// requires_human_approval, Unmarshal has nowhere to put it and drops it. That
+// is intended. Any code that reads the field back off the wire is asking a
+// question whose answer is always true.
+//
 // Call Validate before persisting anything that has one.
 package models
 
@@ -53,19 +58,17 @@ const (
 	SourceWeb       Source = "web"
 )
 
-// AllSources is every value the Postgres source enum accepts.
-var AllSources = []Source{
-	SourceX, SourceReddit, SourceYoutube, SourceNews, SourcePlaystore,
-	SourceAppstore, SourceAmazon, SourceFlipkart, SourceInstagram, SourceWeb,
-}
-
 // Valid reports whether s is a member of the enum. An invalid Source reaching
 // Postgres is an insert error, so adapters check before emitting.
+//
+// A switch rather than a lookup table because the values are then listed once,
+// here and in the const block above, instead of a third time in a slice that a
+// new source can be left out of silently.
 func (s Source) Valid() bool {
-	for _, known := range AllSources {
-		if s == known {
-			return true
-		}
+	switch s {
+	case SourceX, SourceReddit, SourceYoutube, SourceNews, SourcePlaystore,
+		SourceAppstore, SourceAmazon, SourceFlipkart, SourceInstagram, SourceWeb:
+		return true
 	}
 	return false
 }
@@ -317,6 +320,11 @@ func (m Mention) Validate() error {
 	if m.PostedAt.IsZero() {
 		return fmt.Errorf("models: Mention.posted_at is required, baselines are built from it")
 	}
+	// Catches the zero value pydantic used to fill with "en". An empty lang
+	// silently drops the mention from every language-filtered query.
+	if m.Lang == "" {
+		return fmt.Errorf("models: Mention %q has no lang; set it explicitly, there is no default", m.ID)
+	}
 	return nil
 }
 
@@ -402,6 +410,19 @@ func NewTopic(id, brandID string) Topic {
 		Trend:        1.0,
 		MentionIDs:   []string{},
 	}
+}
+
+// Validate catches the zero Trend, which is the failure NewTopic exists to
+// prevent and which a decoder bypasses entirely. A trend of 0 would render as
+// a topic that vanished, when it means nobody set the field.
+func (t Topic) Validate() error {
+	if t.ID == "" || t.BrandID == "" {
+		return fmt.Errorf("models: Topic.id and brand_id are required")
+	}
+	if t.Trend <= 0 {
+		return fmt.Errorf("models: Topic %q has trend %v; 1.0 means flat, 0 means unset", t.ID, t.Trend)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

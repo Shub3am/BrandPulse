@@ -13,6 +13,18 @@ export type Source =
 
 export type SentimentLabel = "negative" | "neutral" | "positive" | "mixed";
 
+export type Emotion =
+  | "anger" | "joy" | "sadness" | "fear" | "disgust" | "surprise" | "neutral";
+
+export type Intent =
+  | "complaint" | "praise" | "question" | "purchase_intent"
+  | "comparison" | "spam" | "news" | "other";
+
+/** Either a Source value or one of the three reply-only channels. */
+export type Channel = Source | "whatsapp" | "email" | "statement";
+
+export type RunKind = "onboard" | "scheduled" | "on_demand" | "crisis_replay";
+
 export type AlertKind =
   | "spike" | "crisis" | "influencer_mention" | "competitor_move" | "review_bomb";
 
@@ -23,6 +35,28 @@ export type AlertStatus = "open" | "acked" | "snoozed" | "resolved";
 export type DraftStatus = "draft" | "approved" | "rejected" | "sent";
 
 export type RunStatus = "running" | "ok" | "partial" | "failed";
+
+export interface BrandVoice {
+  tone: string;
+  language: string;
+  signature?: string;
+  do_not_say: string[];
+}
+
+export interface BrandProfile {
+  brand_id: string;
+  name: string;
+  website?: string;
+  keywords: string[];
+  hashtags: string[];
+  products: string[];
+  competitors: string[];
+  sources: Source[];
+  negative_keywords: string[];
+  source_handles: Record<string, string>;
+  voice: BrandVoice;
+  version: number;
+}
 
 export interface Engagement {
   likes: number;
@@ -46,14 +80,15 @@ export interface Mention {
   rating?: number;
   matched_keyword?: string;
   content_hash: string;
+  raw?: Record<string, unknown>;
 }
 
 export interface Enrichment {
   mention_id: string;
   sentiment: number;
   sentiment_label: SentimentLabel;
-  emotion: string;
-  intent: string;
+  emotion: Emotion;
+  intent: Intent;
   aspects: string[];
   is_about_brand: boolean;
   about_competitor?: string;
@@ -93,12 +128,16 @@ export interface ReplyDraft {
   id: string;
   alert_id?: string;
   mention_id?: string;
-  channel: string;
+  channel: Channel;
   text: string;
   tone: string;
   do_not_say: string[];
   status: DraftStatus;
-  /** Always true. The agents emit it unconditionally; nothing here may post. */
+  /**
+   * Always true. The Go type has no such field: MarshalJSON emits it
+   * unconditionally, so it is present on the wire and absent from the struct.
+   * That asymmetry is why ReplyDraft cannot be machine-translated from Go.
+   */
   requires_human_approval: boolean;
 }
 
@@ -127,7 +166,7 @@ export interface BriefNumbers {
 export interface RunRecord {
   id: string;
   brand_id: string;
-  kind: string;
+  kind: RunKind;
   time_bucket: string;
   started_at: string;
   finished_at?: string;

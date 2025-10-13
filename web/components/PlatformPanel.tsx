@@ -1,58 +1,85 @@
 // Makes the three platforms visible in the product rather than only in the
 // architecture diagram: what Nasiko orchestrated, what Anakin cost, what
-// DronaHQ delivered. The numbers come from the RunRecord the orchestrator
-// wrote, so this panel is also the honest degradation report.
+// DronaHQ delivered.
+//
+// Every row reads from the RunRecord the orchestrator wrote or from a list
+// whose length is the answer. A literal here would be a fabricated measurement
+// sitting inside the panel whose whole job is honest degradation reporting,
+// which is why the agent count is absent: RunRecord does not carry it yet.
 
-import type { RunRecord } from "@/lib/types";
-import { minutesAndSeconds, rupees } from "@/lib/format";
+import type { ReplyDraft, RunRecord } from "@/lib/types";
+import { durationBetween, minutesAndSeconds, rupees } from "@/lib/format";
 
-export function PlatformPanel({ run, secondsToWhatsapp }: { run: RunRecord; secondsToWhatsapp: number }) {
-  const runSeconds = run.finished_at
-    ? Math.round((Date.parse(run.finished_at) - Date.parse(run.started_at)) / 1000)
-    : 0;
+interface PlatformCard {
+  name: string;
+  blurb: string;
+  rows: [label: string, value: string][];
+  note?: string;
+}
 
+function buildCards(run: RunRecord, drafts: ReplyDraft[], secondsToWhatsapp: number): PlatformCard[] {
+  return [
+    {
+      name: "Nasiko",
+      blurb: "A2A agents, routed and metered.",
+      rows: [
+        ["Run status", run.status],
+        ["Wall clock", durationBetween(run.started_at, run.finished_at) ?? "running"],
+        ["LLM spend", rupees(run.cost_paise)],
+        ["Tokens", run.tokens_used.toLocaleString("en-IN")],
+      ],
+      note: run.degraded_reason,
+    },
+    {
+      name: "Anakin",
+      blurb: "Every mention on this page was fetched here.",
+      rows: [
+        ["Credits this run", String(run.credits_used)],
+        ["Mentions collected", String(run.mentions_collected)],
+        ["Sources hit", run.sources_attempted.join(", ")],
+        ["Skipped", run.sources_skipped.join(", ") || "none"],
+      ],
+    },
+    {
+      name: "DronaHQ",
+      blurb: "The founder never opens a dashboard at 2am.",
+      rows: [
+        ["Alert to WhatsApp", minutesAndSeconds(secondsToWhatsapp)],
+        ["Channel", "WhatsApp Business"],
+        ["Reply drafts queued", String(drafts.length)],
+        ["Auto-posted", "0, by design"],
+      ],
+    },
+  ];
+}
+
+export function PlatformPanel({
+  run,
+  drafts,
+  secondsToWhatsapp,
+}: {
+  run: RunRecord;
+  drafts: ReplyDraft[];
+  secondsToWhatsapp: number;
+}) {
   return (
     <div className="platforms">
-      <div className="card platform">
-        <h4>
-          <i className="dot" style={{ background: "var(--accent)" }} />
-          Nasiko
-        </h4>
-        <p>Nine A2A agents, routed and metered.</p>
-        <div className="kv"><span>Agents invoked</span><span>9</span></div>
-        <div className="kv"><span>Run status</span><span>{run.status}</span></div>
-        <div className="kv"><span>Wall clock</span><span>{minutesAndSeconds(runSeconds)}</span></div>
-        <div className="kv"><span>LLM spend</span><span>{rupees(run.cost_paise)}</span></div>
-        {run.degraded_reason && (
-          <p style={{ marginTop: 12, marginBottom: 0, fontSize: 12.5, color: "var(--warn)" }}>
-            {run.degraded_reason}
-          </p>
-        )}
-      </div>
-
-      <div className="card platform">
-        <h4>
-          <i className="dot" style={{ background: "var(--accent)" }} />
-          Anakin
-        </h4>
-        <p>Every mention on this page was fetched here.</p>
-        <div className="kv"><span>Credits this run</span><span>{run.credits_used}</span></div>
-        <div className="kv"><span>Mentions collected</span><span>{run.mentions_collected}</span></div>
-        <div className="kv"><span>Sources hit</span><span>{run.sources_attempted.join(", ")}</span></div>
-        <div className="kv"><span>Skipped</span><span>{run.sources_skipped.join(", ") || "none"}</span></div>
-      </div>
-
-      <div className="card platform">
-        <h4>
-          <i className="dot" style={{ background: "var(--accent)" }} />
-          DronaHQ
-        </h4>
-        <p>The founder never opens a dashboard at 2am.</p>
-        <div className="kv"><span>Alert to WhatsApp</span><span>{minutesAndSeconds(secondsToWhatsapp)}</span></div>
-        <div className="kv"><span>Channel</span><span>WhatsApp Business</span></div>
-        <div className="kv"><span>Reply drafts queued</span><span>1</span></div>
-        <div className="kv"><span>Auto-posted</span><span>0, by design</span></div>
-      </div>
+      {buildCards(run, drafts, secondsToWhatsapp).map((card) => (
+        <div className="card platform" key={card.name}>
+          <h4>
+            <i className="dot" />
+            {card.name}
+          </h4>
+          <p>{card.blurb}</p>
+          {card.rows.map(([label, value]) => (
+            <div className="kv" key={label}>
+              <span>{label}</span>
+              <span>{value}</span>
+            </div>
+          ))}
+          {card.note && <p className="platform-note">{card.note}</p>}
+        </div>
+      ))}
     </div>
   );
 }

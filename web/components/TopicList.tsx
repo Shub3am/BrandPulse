@@ -1,9 +1,19 @@
 // Clusters from bp-clusterer, with the sentiment split rendered as one bar.
+//
+// Topic.trend uses 1.0 for both "flat" and "no prior window to compare", so the
+// arrow is three-way. A two-way arrow would render "we have no comparison" as
+// "declining", which is the kind of invented fact this product exists to avoid.
 
 import type { SentimentLabel, Topic } from "@/lib/types";
 import { SENTIMENT_COLOR } from "@/lib/format";
 
 const MIX_ORDER: SentimentLabel[] = ["negative", "neutral", "positive", "mixed"];
+
+function trendArrow(trend: number): string {
+  if (trend > 1) return "↑";
+  if (trend < 1) return "↓";
+  return "—";
+}
 
 export function TopicList({ topics }: { topics: Topic[] }) {
   return (
@@ -12,10 +22,10 @@ export function TopicList({ topics }: { topics: Topic[] }) {
         <section className="topic" key={topic.id}>
           <div className="topic-head">
             <b>{topic.label}</b>
-            <span className={`pill ${topic.trend > 1.5 ? "pill-negative" : ""}`}>
-              {topic.trend > 1 ? "↑" : "↓"} {topic.trend.toFixed(1)}x
+            <span className="pill">
+              {trendArrow(topic.trend)} {topic.trend.toFixed(1)}x
             </span>
-            <span className="pill" style={{ marginLeft: "auto" }}>{topic.size}</span>
+            <span className="pill push-right">{topic.size}</span>
           </div>
           <p>{topic.summary}</p>
           <div className="mix">

@@ -151,6 +151,11 @@ a { color: inherit; text-decoration: none; }
 
 .mono { font-family: var(--mono); font-size: 12.5px; }
 
+/* Small print. Declared once so 12.5px is not spelled across six components. */
+.note { font-size: 12.5px; color: var(--text-faint); margin: 0; }
+.muted { color: var(--text-muted); }
+.push-right { margin-left: auto; }
+
 .btn {
   padding: 8px 14px;
   border-radius: 8px;
@@ -376,6 +381,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 .platform p { margin: 0 0 12px; font-size: 13px; color: var(--text-muted); }
+
+/* The one colour these dots ever take, so components pass no inline style. */
+.platform h4 .dot { background: var(--accent); }
+
+/* Outranks `.platform p` on specificity, so no !important is needed. */
+.platform p.platform-note { margin: 12px 0 0; font-size: 12.5px; color: var(--warn); }
 
 .kv { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
 .kv + .kv { border-top: 1px solid var(--border); }

@@ -5,7 +5,7 @@
 // constant it was compared with, rather than claiming an AI found a crisis.
 
 import type { Alert } from "@/lib/types";
-import { clockTime, minutesAndSeconds } from "@/lib/format";
+import { clockTime, humanLabel, minutesAndSeconds } from "@/lib/format";
 
 export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; secondsToWhatsapp: number }) {
   return (
@@ -15,7 +15,7 @@ export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; second
           <i className="dot" />
           {alert.severity}
         </span>
-        <span className="pill">{alert.kind.replace("_", " ")}</span>
+        <span className="pill">{humanLabel(alert.kind)}</span>
         <span className="pill">fired {clockTime(alert.created_at)} IST</span>
         <span className="pill pill-accent">
           WhatsApp sent in {minutesAndSeconds(secondsToWhatsapp)}
@@ -39,7 +39,7 @@ export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; second
             <span className="evidence-fail">{fact.value}</span>
             <span>{fact.threshold}</span>
             <span>{fact.window}</span>
-            <span style={{ color: "var(--text-muted)" }}>{fact.detail}</span>
+            <span className="muted">{fact.detail}</span>
           </div>
         ))}
       </div>
@@ -47,9 +47,7 @@ export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; second
       <div className="draft-actions">
         <button className="btn btn-primary">Open suggested reply</button>
         <button className="btn">Acknowledge</button>
-        <span className="mono" style={{ color: "var(--text-faint)", marginLeft: "auto" }}>
-          dedupe_key {alert.dedupe_key}
-        </span>
+        <span className="mono note push-right">dedupe_key {alert.dedupe_key}</span>
       </div>
     </div>
   );

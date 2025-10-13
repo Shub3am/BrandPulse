@@ -12,7 +12,8 @@ import { PlatformPanel } from "@/components/PlatformPanel";
 import { StatRow } from "@/components/StatRow";
 import { TopicList } from "@/components/TopicList";
 import {
-  BRAND, CRISIS_ALERT, DRAFT, MENTIONS, NUMBERS, RUN, TIME_TO_WHATSAPP_SECONDS, TOPICS,
+  ALERTS, BRAND, CRISIS_ALERT, DRAFT, DRAFTS, MENTIONS, NUMBERS, RUN,
+  TIME_TO_WHATSAPP_SECONDS, TOPICS,
 } from "@/lib/demoData";
 
 export default function PulsePage() {
@@ -31,13 +32,13 @@ export default function PulsePage() {
         </p>
         <div className="hero-meta">
           <span className="pill">{BRAND.name}</span>
-          <span className="pill">{BRAND.tagline}</span>
-          <span className="pill">6 sources</span>
+          <span className="pill">{BRAND.sources.length} sources</span>
+          <span className="pill">{BRAND.competitors.length} competitors tracked</span>
           <span className="pill">₹2,999 / month</span>
         </div>
       </section>
 
-      <StatRow numbers={NUMBERS} />
+      <StatRow numbers={NUMBERS} alerts={ALERTS} />
 
       <section className="section">
         <div className="section-head">
@@ -79,7 +80,7 @@ export default function PulsePage() {
           <h2>Run report</h2>
           <p>What each platform actually did, including what it had to skip.</p>
         </div>
-        <PlatformPanel run={RUN} secondsToWhatsapp={TIME_TO_WHATSAPP_SECONDS} />
+        <PlatformPanel run={RUN} drafts={DRAFTS} secondsToWhatsapp={TIME_TO_WHATSAPP_SECONDS} />
       </section>
 
       <p className="footnote">

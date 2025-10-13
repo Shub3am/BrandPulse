@@ -9,10 +9,27 @@
 // This file must not import React or call anything.
 
 import type {
-  Alert, BriefNumbers, EnrichedMention, ReplyDraft, RunRecord, Topic,
+  Alert, BrandProfile, BriefNumbers, EnrichedMention, ReplyDraft, RunRecord, Topic,
 } from "./types";
 
-export const BRAND = { id: "lumeo", name: "Lumeo", tagline: "skincare, D2C, Mumbai" };
+export const BRAND: BrandProfile = {
+  brand_id: "lumeo",
+  name: "Lumeo",
+  website: "https://lumeo.example",
+  keywords: ["Lumeo", "Lumeo serum", "Lumeo skincare"],
+  hashtags: ["#lumeo"],
+  products: ["Vitamin C serum", "Mineral sunscreen", "Ceramide moisturiser"],
+  competitors: ["Minimalist", "The Ordinary", "Plum", "Dot & Key"],
+  sources: ["reddit", "amazon", "youtube", "news", "playstore", "web"],
+  negative_keywords: ["lumeo lighting", "lumeo camera"],
+  source_handles: { playstore: "com.lumeo.shop", amazon: "B0C7X9LUM" },
+  voice: {
+    tone: "warm, direct, no corporate filler",
+    language: "English with light Hinglish if the mention is Hinglish",
+    do_not_say: ["clinically proven", "dermatologically tested", "we apologise for any inconvenience"],
+  },
+  version: 3,
+};
 
 export const NUMBERS: BriefNumbers = {
   mentions: 412,
@@ -43,21 +60,27 @@ export const CRISIS_ALERT: Alert = {
   created_at: "2026-09-20T14:06:00Z",
 };
 
+/** Every open alert. Components count this rather than hardcoding a total. */
+export const ALERTS: Alert[] = [CRISIS_ALERT];
+
 export const DRAFT: ReplyDraft = {
   id: "draft_7c21",
   alert_id: "alert_7c21",
   channel: "reddit",
-  tone: "warm, direct, no corporate filler",
+  tone: BRAND.voice.tone,
   text:
     "This is Ananya from Lumeo. We're reading every one of these and we're not " +
     "going to hand-wave it. If you have a reaction, stop using the serum now. " +
     "DM me your order ID and we'll refund it today, no return needed. We're " +
     "pulling batch L-2411 while we test it, and I'll post what we find here by " +
     "Monday, whatever it says.",
-  do_not_say: ["clinically proven", "dermatologically tested", "we apologise for any inconvenience"],
+  do_not_say: BRAND.voice.do_not_say,
   status: "draft",
   requires_human_approval: true,
 };
+
+/** Every draft awaiting a human. The panel counts this rather than a literal. */
+export const DRAFTS: ReplyDraft[] = [DRAFT];
 
 export const MENTIONS: EnrichedMention[] = [
   {
@@ -179,7 +202,7 @@ export const RUN: RunRecord = {
   sources_attempted: ["reddit", "amazon", "youtube", "news", "playstore", "web"],
   sources_skipped: ["appstore"],
   degraded_reason: "Nasiko flow guard capped fan-out at 6 concurrent collectors",
-  mentions_collected: 412,
+  mentions_collected: NUMBERS.mentions,
   errors: [],
 };
 
