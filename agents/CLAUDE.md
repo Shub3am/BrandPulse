@@ -2,14 +2,15 @@
 
 ## What this module owns
 
-Nine A2A agents, one directory each, every one of them a container Nasiko
-deploys. Each directory holds `main.py`, `AgentCard.json`, `Dockerfile` and
-`tests/`.
+Nine A2A agents in Go, one directory each, every one of them a container Nasiko
+deploys. Each directory holds `main.go` (`package main`), `AgentCard.json`,
+`Dockerfile` and its `_test.go` files beside the code.
 
 ## What it must not know about
 
-Each other's internals. An agent talks to a peer through
-`bp_core.a2a.call_agent` and the typed models, never by importing it.
+Each other's internals. An agent talks to a peer through `a2a.Call` and the
+typed models, never by importing it. `agents/bp-x` importing `agents/bp-y` is
+a build-order mistake, not a shortcut.
 
 ## Entry points
 
@@ -30,16 +31,34 @@ Per-agent input and output signatures are frozen in
 
 ## Invariants and gotchas
 
+- **Every agent's `main()` is the same twenty lines.** Build the handler, call
+  `obs.Setup`, call `a2a.Serve(card, handler)`. If your `main.go` is longer
+  than that, logic has leaked out of the handler.
 - **One `application/json` artifact per call**, emitted through
-  `bp_core.a2a.emit_json_artifact`. Never hand-build an artifact.
-- **Errors return the normal model with `errors` populated**, they do not raise
-  out of the executor. A dead source must not kill a run.
+  `a2a.JSONArtifact`. Never hand-build an artifact.
+- **Handler shape is `Handle(ctx context.Context, in XInput) (Output, error)`**
+  on a type named `<Name>Handler`. `internal/a2a` adapts that to the SDK's
+  executor interface, so no agent implements the SDK interface directly and an
+  SDK version bump is a one-file change.
+- **Errors return the normal struct with `Errors` populated**, they do not
+  return a non-nil error out of the handler. A dead source must not kill a run.
+  The `error` return is for malformed input only.
+- **Zero values are the hazard.** Go has no field defaults. Build domain types
+  with their `New*` constructor and call `Validate()` before persisting. See
+  [internal/models/CLAUDE.md](../internal/models/CLAUDE.md).
+- **Nasiko auto-injects OpenTelemetry for Python containers only.** Go agents
+  self-instrument: `obs.Setup(serviceName)` in `main()`, deferred shutdown.
+  Skip it and the agent is invisible to `nasiko observe`.
+- **Never deploy through the Nasiko dashboard zip uploader.** Its
+  `validate_agent_zip` check requires a `main.py` and will reject a Go agent.
+  `nasiko deploy` from the CLI does not run that gate. Use the CLI.
 - **`AgentCard.json` uses `protocolVersion: "1.0"`.** The Nasiko example ships
   `"0.2.9"` and a real cluster rejects it with `-32009 VersionNotSupported`.
 - **`skills` is never empty** or the agent is invisible to routing.
-- **The Dockerfile builds with the repo root as context** so `shared/` is
-  available. The example `currency-agent` Dockerfile does not build at all; ours
-  is in [docs/research/nasiko.md](../docs/research/nasiko.md) §4.
+- **The Dockerfile builds with the repo root as context** so `internal/` and
+  `go.mod` are available, and it is multi-stage: `golang:1.27` to build with
+  `CGO_ENABLED=0`, then a distroless static run stage holding one binary. The
+  example `currency-agent` Dockerfile does not build at all.
 - **The LLM router ignores the `model` field in the request body.** Per-agent
   model choice is set with `nasiko llm-config`, not in code.
 - **No agent constructs a peer URL.** Fan-out caps live with the orchestrator;
