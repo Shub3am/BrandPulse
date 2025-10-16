@@ -84,10 +84,13 @@ Both are real and neither reverses the decision.
 into Dockerfiles with a `FROM python` base, so Go agents self-instrument. The
 research put this at roughly 150 lines per agent, which across nine agents would
 be the single largest hidden cost of leaving Python. It is not, because it is
-150 lines **once** in `internal/obs/`, exporting one `obs.Init(serviceName)` that
-every agent calls on the first line of `main`. Nine copies would be the mistake;
-one shared package is the design we already have for `internal/a2a/`. B5 owns it
-and it is on the critical path for `nasiko observe` showing our spans.
+150 lines **once** in `internal/obs/`, exporting one `obs.Setup(serviceName)`
+that every agent calls on the first line of `main`. Nine copies would be the
+mistake; one shared package is the design we already have for `internal/a2a/`.
+**B1 writes it** with the rest of `internal/`, and **B5 verifies** that its
+spans actually arrive in `nasiko observe` before the other eight agents deploy.
+A span that is emitted and never received is worth nothing, so the check is a
+deploy blocker and not a polish item.
 
 **2. There is a Python gate, but not on our path.** `validate_agent_zip` in
 Nasiko's `server/src/agents/upload.rs` hard-rejects any zip without

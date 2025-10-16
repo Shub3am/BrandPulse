@@ -233,7 +233,7 @@ The things most likely to sink this, and what we do about each.
 | Parallel tracks drift on interfaces | `docs/CONTRACTS.md` is frozen at Phase 0. Changes go through B1 on `main`, never inside a worktree. In Go the drift is also a compile error, which is most of why Go was chosen. |
 | Five tracks blocked waiting for B1 to finish `internal/` | B1's first commit is the full import surface as signatures with `panic("not implemented")` bodies, on `main` inside twenty minutes. Everyone compiles against it immediately. |
 | DronaHQ cannot do WhatsApp natively | It has a native WhatsApp trigger over the Meta Business API. Outbound send mechanics are unverified and B5 confirms them on day one; the fallback is the Twilio connector as a REST connector. The demo needs message delivery, not a specific vendor. |
-| Clustering has no embeddings endpoint to use | **Already happened.** The Nasiko router lists chat models only, so bp-clusterer defaults to local TF-IDF behind `BP_VECTORISER=tfidf\|embeddings`. Deterministic, free, and runs in CI. |
+| Clustering has no embeddings endpoint to use | **Already happened.** The Nasiko router lists chat models only, so bp-clusterer clusters on local TF-IDF. Deterministic, free, and runs in CI. No `BP_VECTORISER` switch: one implementation ships, and an unused branch is a branch nobody tests. |
 
 ---
 

@@ -73,8 +73,14 @@ Detail in [docs/research/nasiko.md](docs/research/nasiko.md) §6 Finding A.
 
 ### 2026-09-20 — main — no verified embeddings endpoint on the Nasiko router
 
-The catalogue lists chat models only. bp-clusterer therefore defaults to local
-TF-IDF, behind `BP_VECTORISER=tfidf|embeddings`. Detail in §6 Finding B.
+The catalogue lists chat models only. bp-clusterer therefore clusters on local
+TF-IDF. Detail in §6 Finding B.
+
+Amended 2026-09-20: the original entry put this behind a
+`BP_VECTORISER=tfidf|embeddings` switch. There is no switch. One implementation
+ships, because an alternate branch with no endpoint behind it is a branch
+nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
+that one point.
 
 ---
 

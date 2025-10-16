@@ -22,15 +22,20 @@ The language decision and what it cost is in
 ## 0. Module layout
 
 Module path is `brandpulse` (a bare path, not a GitHub URL, because the repo
-has no remote yet). B5 runs exactly one `go mod edit -module github.com/<org>/brandpulse`
-before the Nasiko deploy and nothing else in the tree needs to change.
+has no remote yet). Before the Nasiko deploy, B5 changes it once, on `main`,
+and that is **not** a one-line change: `go mod edit -module` rewrites `go.mod`
+alone, so every `brandpulse/internal/...` import statement in the tree is
+rewritten in the same commit, then `go mod tidy`, then
+`go build ./... && go vet ./...`. It lands as its own commit with a rebase
+notice in `HACKATHON_NOTES.md`, because it touches every file five tracks are
+working in.
 
 ```
-internal/            shared library. B1 owns all of it. No agent imports another agent.
+internal/            shared library. B1 owns it, with one exception noted below.
   models/            wire format. Domain types + agent I/O envelopes. Pure schema.
   ids/               New(prefix) -> "mnt_01J..."
   hashing/           ContentHash(text, source) -> sha256 hex
-  redact/            RedactPII(text) -> text, runs before every prompt
+  redact/            redact.PII(text) -> text, runs before every prompt
   llm/               ChatJSON, Embed. OPENAI_BASE_URL only, no provider config.
   db/                pgxpool wrappers + migrations runner
   stats/             ZScore, ComputeBaseline, HourBucket, DayBucket
@@ -75,10 +80,21 @@ one artifact:
 `internal/a2a` provides the helper that builds that artifact, so no agent hand
 -rolls the envelope and every agent's `main()` is the same twenty lines.
 
-**Errors do not fail the task.** An agent that hits trouble returns its normal
-output struct with `Errors` populated and partial data in place, so the
-orchestrator can degrade instead of dying. The one exception is malformed
-input, which returns an A2A task failure.
+**Errors do not fail the task, where there is a partial answer to give.** An
+agent whose output is a batch (`MentionBatch`, `EnrichmentBatch`, `TopicSet`,
+`AlertSet`) returns that struct with `Errors` populated and partial data in
+place, so the orchestrator can degrade instead of dying. A dead source must not
+kill a run.
+
+The four agents whose output is a bare domain type (`BrandProfile`,
+`ShareOfVoice`, `ReplyDraft`, `DailyBrief`) have no `Errors` field and are not
+getting one. They produce a single indivisible answer, and half a reply draft
+or a brief with a hole in it is worse than an absent one: the orchestrator can
+see a failed step and say so, but it cannot see that a returned draft was
+built from nothing. Those four return an A2A task failure instead. The
+orchestrator records it in `RunRecord.DegradedReason` and carries on.
+
+Malformed input is always an A2A task failure, for all nine.
 
 Datetimes are `time.Time`, marshalled RFC 3339 with an explicit UTC offset. IDs
 are strings, generated as `ids.New(prefix)` giving `"<prefix>_<ulid>"`.
@@ -180,7 +196,7 @@ costs zero tokens. Order of `Enrichments` is not guaranteed; join on
 `IsAboutBrand == false` mentions still get returned. The clusterer and SOV
 agents filter them out; the collector does not delete them.
 
-`RedactPII` runs on every `Mention.Text` before it reaches the prompt. This is
+`redact.PII` runs on every `Mention.Text` before it reaches the prompt. This is
 not optional and it is not the model's job.
 
 ---
@@ -201,6 +217,7 @@ type TopicSet struct {
     Topics      []models.Topic `json:"topics"`
     Unclustered []string       `json:"unclustered"`
     TokensUsed  int            `json:"tokens_used"`
+    CostPaise   float64        `json:"cost_paise"`
     Errors      []string       `json:"errors"`
 }
 ```
@@ -218,8 +235,10 @@ is no prior window. `Topic.Validate()` rejects `Trend <= 0`, because a zero
 trend means "nobody set the field", not "this topic vanished".
 
 Embedding through `llm.Embed` is optional and currently unused: TF-IDF is
-enough at 400 mentions and costs no tokens. Do not add embeddings to hit a
-quality bar nobody has measured.
+enough at the corpus size we ship (the Phase 2 gate is 300 mentions) and costs
+no tokens. Do not add embeddings to hit a quality bar nobody has measured, and
+do not add a `BP_VECTORISER` switch: one implementation ships, and an unused
+branch is a branch nobody tests.
 
 ---
 
@@ -268,9 +287,19 @@ type AlertSet struct {
 }
 ```
 
-`MeanRating` is the one pointer in the whole contract. It is a pointer because
-"no review source ran" and "average rating was 0.0" are different facts and the
-review-bomb rule fires on the second.
+`MeanRating` is a pointer because "no review source ran" and "average rating
+was 0.0" are different facts, and the review-bomb rule fires on the second.
+`models.Mention.Rating` is a pointer for exactly the same reason and carries
+exactly the same nil-deref hazard. The other pointers in the contract
+(`RunRecord.FinishedAt`, `RespondInput.Alert`, `RespondInput.Mention`) mean
+"not yet" and "not this one" rather than "absent versus zero".
+
+**Ruling on which mean `review_bomb` compares:** the observed hour's mean,
+computed from the non-nil `Mention.Rating` values in that hour's review-source
+mentions. `BaselineStats.MeanRating` is context for the brief and is not the
+comparison operand. If fewer than five of the hour's mentions carry a rating,
+the rule does not fire, because the threshold is five reviews and a mention
+without a rating is not a review.
 
 **Deterministic. No LLM call in this agent, at all.** The five rules:
 
@@ -398,11 +427,18 @@ import (
     "brandpulse/internal/stats"    // stats.ComputeBaseline, stats.ZScore, stats.HourBucket
     "brandpulse/internal/anakin"   // anakin.Client, anakin.ErrBudgetExceeded
     "brandpulse/internal/prompts"  // prompts.Load(name), prompts.Guardrails
-    "brandpulse/internal/cluster"  // cluster.TFIDF, cluster.Agglomerative
     "brandpulse/internal/obs"      // obs.Setup(serviceName) -> shutdown func
     "brandpulse/internal/a2a"      // a2a.Serve(card, handler), a2a.JSONArtifact
 )
 ```
+
+**`internal/cluster` is the one exception and it is B3's, not B1's.** It is the
+only package under `internal/` that nobody but `bp-clusterer` imports, it is
+240 to 320 lines of algorithm rather than shared plumbing, and B3 builds it as
+their Task 1 before the agent that uses it. B1 does not create it and does not
+stub it, because a `panic("not implemented")` TF-IDF that compiles is worse
+than a missing package: it fails at run time on stage instead of at build time
+on day one.
 
 Signatures B1 must publish exactly as written, because five tracks compile
 against them before B1's implementation exists:
@@ -425,7 +461,22 @@ func prompts.Load(name string) string
 var  prompts.Guardrails []string
 
 func obs.Setup(serviceName string) (shutdown func(context.Context) error, err error)
+
+// Serve wires a handler to the A2A SDK. Every agent's main() ends in this.
+func a2a.Serve(card a2a.Card, h a2a.Handler) error
+func a2a.JSONArtifact(name string, v any) (a2a.Artifact, error)
+
+// Call reaches a peer agent through the Nasiko proxy. bp-orchestrator is the
+// only caller. No agent constructs a peer URL: the proxy address and the
+// routing header are Nasiko's, and hardcoding one breaks on redeploy.
+func a2a.Call(ctx context.Context, agent string, in any, out any) error
 ```
+
+B1 also adds the two domain constructors the existing `models.go` lacks and
+which B4 needs, `models.NewAlert` and `models.NewDailyBrief`, matching the
+shape of the six already there. The repo rule is "construct through the `New*`
+constructor", and right now that rule is unsatisfiable for exactly the two
+types B4 produces.
 
 ### anakin.Client
 
@@ -439,7 +490,48 @@ type Client interface {
     Scrape(ctx context.Context, url string, opt ScrapeOpt) (json.RawMessage, error)
     Map(ctx context.Context, url string, opt MapOpt) (json.RawMessage, error)
     Crawl(ctx context.Context, url string, opt CrawlOpt) (json.RawMessage, error)
+
+    // Stats reports what this client has spent since it was built. The
+    // collector reads it once at the end to fill MentionBatch.CreditsUsed
+    // and CacheHits. Per-action Wire costs vary, so the collector must not
+    // keep its own cost table: that would be a second source of truth for
+    // the number the whole budget story rests on.
+    Stats() Stats
 }
+
+type Stats struct {
+    CreditsUsed int `json:"credits_used"`
+    CacheHits   int `json:"cache_hits"`
+}
+```
+
+**How `CollectInput.MaxCredits` reaches the client.** The adapter signature
+takes no budget, on purpose. The collector builds a client bound to its own
+ceiling and hands that to the adapter:
+
+```go
+func anakin.NewHTTPClient(cfg Config) (Client, error)  // cfg.MaxCredits is the ceiling
+```
+
+Once the ceiling is reached every method returns `ErrBudgetExceeded` without
+calling out. The adapter returns what it has, and the collector treats
+`errors.Is(err, anakin.ErrBudgetExceeded)` as `Truncated: true` rather than as
+a failure. That way "stop at the ceiling" is enforced in the one place that
+knows the real per-action cost, and no adapter can spend past it by
+forgetting a check.
+
+**Fetch errors carry a reason.** Anakin distinguishes a blocked page, a CAPTCHA
+wall, a timeout and a DNS failure, and `RunRecord.DegradedReason` is supposed to
+say which. Plain `errors.New` throws that away:
+
+```go
+type FetchError struct {
+    Reason FetchReason // blocked | captcha | timeout | dns | tls | ratelimited | upstream
+    Source models.Source
+    Err    error
+}
+func (e *FetchError) Error() string { ... }
+func (e *FetchError) Unwrap() error { return e.Err }
 ```
 
 `json.RawMessage` rather than a typed struct on purpose: **the literal Anakin
@@ -503,9 +595,28 @@ unique constraint:
   one method `Handle(ctx context.Context, in <Name>Input) (<Output>, error)`.
   `internal/a2a` adapts that to the A2A executor interface, so no agent
   implements the SDK's interface directly.
-- Source adapters: `internal/anakin/sources/<source_value>.go`, one exported
-  function per file:
-  `func Fetch(ctx context.Context, c anakin.Client, p models.BrandProfile, start, end time.Time) ([]models.Mention, error)`.
+- Source adapters: package `internal/anakin/sources`, one file per source named
+  `<source_value>.go`. Each file declares one **unexported** adapter named for
+  its source, and `registry.go` maps the enum to it:
+
+  ```go
+  type Adapter func(ctx context.Context, c anakin.Client, p models.BrandProfile,
+      start, end time.Time) ([]models.Mention, error)
+
+  // Registry is the only dispatch point. A source with no entry is a config
+  // error the orchestrator reports, not a nil call at collection time.
+  var Registry = map[models.Source]Adapter{
+      models.SourceReddit:  fetchReddit,   // reddit.go
+      models.SourceYoutube: fetchYoutube,  // youtube.go
+      // ...one line per shipped source
+  }
+
+  func Get(s models.Source) (Adapter, bool)
+  ```
+
+  One exported `Fetch` per file would be a redeclaration error: these are files
+  in one package, not modules. The registry is written out by hand rather than
+  populated from `init()` so the shipped source list is greppable in one place.
 - Fixtures: `fixtures/<source>/<query_hash>.json`, plus
   `fixtures/labelled/mentions.jsonl` for the eval set.
 - Prompts: `internal/prompts/<agent>.md`, `//go:embed`ed, loaded by name, never
@@ -514,6 +625,16 @@ unique constraint:
   ginkgo. Table-driven where there is more than one case.
 - Every exported identifier gets a doc comment starting with its own name. `go
   vet` is part of the definition of done for every track.
+
+**Who owns `AgentCard.json` and `Dockerfile`.** The track that writes the agent
+owns both, and commits them with the agent. B5 owns neither file and edits
+neither: B5 owns the shared template they are copied from
+(`docs/research/nasiko.md` §4), the `nasiko.yaml`, and the deploy. If a card is
+wrong, B5 files it in `HACKATHON_NOTES.md` under "Open blockers" and the owning
+track fixes it. Nine agents in five worktrees each editing eighteen files that
+a sixth worktree also edits is a guaranteed conflict on merge day, and the
+Dockerfile is identical across all nine but for the binary name, so there is
+nothing for B5 to tune per agent anyway.
 
 ## 5. Environment variables
 
