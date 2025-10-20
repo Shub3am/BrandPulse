@@ -25,6 +25,7 @@ Newest entry at the bottom of its section.
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
+| B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -172,6 +173,29 @@ or a sentence. Synthetic data exists in exactly one file,
 its own synthetic set in `web/lib/demoData.ts`, for a deliberately fictional
 brand, labelled in the top bar and in the page footnote. Both labels are
 load-bearing, not decoration.
+
+### 2026-09-20 — main — four things already broken in `web/`, found before B6 started
+
+Recorded here so B6 does not rediscover them and nobody calls them regressions.
+
+1. **`web/lib/types.ts` is already drifted.** `ShareOfVoice` and `DailyBrief`
+   exist in `models.go` and are missing from the mirror, and `/pulse` needs
+   both. The drift the checker is for is present today, not hypothetical.
+2. **The "demo data" pill sits in `app/layout.tsx`**, which receives no data.
+   It cannot follow the data source from there, so "going live is one file" is
+   not literally true until the badge moves out of the layout. The label is
+   load-bearing under the no-faking rule, so this is correctness, not polish.
+3. **`PlatformPanel.secondsToWhatsapp` has no wire field.** It renders `107`
+   from a constant in `demoData.ts`. `RunRecord` has no such field and the
+   number is still blank in the table below. Right now the UI shows a
+   measurement nobody has taken. Either B4 puts it on the wire or the panel
+   stops claiming it.
+4. **`TopicList.tsx:39` divides by `topic.size`**, so a real topic with
+   `size: 0` renders `NaN%` as a bar width.
+
+Also: `.github/workflows/` is empty. There is no automated pipeline yet, so
+"deploy through the pipeline" is a decision somebody has to make, not a step
+somebody follows.
 
 ---
 
