@@ -22,8 +22,11 @@ psql "$DATABASE_URL" -f db/migrations/001_init.sql
 - **Migrations are additive after Phase 1.** A column rename breaks every track
   at once. New migration files only, numbered in order, never an edit to a file
   that has already been applied.
-- **The schema mirrors `shared/bp_core/models.py`.** They change together, in
-  the same commit, on `main`, through B1.
+- **The schema mirrors `internal/models/`.** They change together, in the same
+  commit, on `main`, through B1. `internal/models/parity_test.go` parses this
+  file and compares its columns to the `json` tags, so a field added on one
+  side without the other is a test failure rather than a discovery on stage.
+  The intended divergences are listed in CONTRACTS §3b and the test knows them.
 - **`mentions` has `UNIQUE (brand_id, content_hash)`** — that constraint is the
   dedupe mechanism, not a safety net. Collectors rely on the conflict.
 - **`alerts` has `UNIQUE (brand_id, dedupe_key)`** so a sustained crisis is one
@@ -37,5 +40,5 @@ psql "$DATABASE_URL" -f db/migrations/001_init.sql
 
 ## Who calls this
 
-`bp_core.db` opens the pool; every agent queries through it. `demo/seed.py`
-loads fixtures. `eval/cost.py` reads `runs` and `mention_enrichment`.
+`internal/db` opens the pool; every agent queries through it. `demo/seed.go`
+loads fixtures. `eval/cost` reads `runs` and `mention_enrichment`.

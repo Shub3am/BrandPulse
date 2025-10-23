@@ -12,11 +12,12 @@ How anything is implemented. It calls agents and reads the database.
 ## Entry points
 
 ```bash
-python -m eval.accuracy   # per-class precision/recall/F1, confusion matrix
-python -m eval.cost       # credits, tokens, ₹ per brand-day, cold and warm
+go run ./eval/accuracy   # per-class precision/recall/F1, confusion matrix
+go run ./eval/cost       # credits, tokens, ₹ per brand-day, cold and warm
 ```
 
-`accuracy.py` writes `eval/RESULTS.md`.
+Each is its own `package main` in its own directory, because two `func main`
+cannot share one package. `accuracy` writes `eval/RESULTS.md`.
 
 ## Invariants and gotchas
 

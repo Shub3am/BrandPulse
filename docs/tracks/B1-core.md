@@ -36,9 +36,12 @@ do not stub it, and correct §3 when you land the first contract fix.
 
 **Files:** `internal/models/parity_test.go`
 
-Right now nothing guards `models.go`. The Python version of this test exists at
-`shared/tests/test_contract_schema_parity.py`; read it, then port it. Same job,
-Go reflection instead of pydantic introspection.
+Right now nothing guards `models.go`. A Python version of this test used to
+live at `shared/tests/test_contract_schema_parity.py` and was deleted in
+`2778f61` along with the rest of the Python contract. If you want to see what
+it did, `git show phase0-contracts:shared/tests/test_contract_schema_parity.py`.
+Same job here, Go reflection instead of pydantic introspection. Do not restore
+the file.
 
 - [ ] Parse `db/migrations/001_init.sql` with a `CREATE TABLE (\w+) \((.*?)\n\);`
       regexp, take the first token of every non-blank, non-`--` line in the
@@ -166,9 +169,10 @@ instead of panicking, it stops being a compile target and starts being a lie.
       `schema_migrations` row per migration file. Skip with `t.Skip` when
       `DATABASE_URL` is unset so a laptop without Docker still runs the rest;
       CI always sets it, so the skip never hides a CI failure.
-- [ ] `db/CLAUDE.md` still says the schema mirrors `shared/bp_core/models.py`
-      and that `bp_core.db` opens the pool. Both are stale. Correct them here,
-      same commit, per repo rule 12.
+- [ ] `db/CLAUDE.md` and the `001_init.sql` header were repointed at
+      `internal/models/` in `70c0ea1`. If anything you build here contradicts
+      what they now say, the code wins and you correct the doc in the same
+      commit, per repo rule 12 and 13.
 - [ ] Paste the output, commit.
 
 ## Task 5: Credit budget

@@ -1,6 +1,7 @@
 -- BrandPulse initial schema.
--- Mirrors shared/bp_core/models.py. A change here needs a change there.
--- Enum values are the StrEnum values in models.py, verbatim.
+-- Mirrors internal/models/. A change here needs a change there, same commit.
+-- Enum labels are the Go enum string values in models.go, verbatim.
+-- internal/models/parity_test.go parses this file and proves that.
 
 BEGIN;
 

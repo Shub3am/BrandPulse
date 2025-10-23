@@ -79,8 +79,10 @@ extractable from the returned markdown. Fail means the source is dropped from
 
 **No source is faked.** If a probe fails, the source does not appear in a
 fixture, a dashboard, a count, or a sentence. Synthetic data exists in exactly
-one place in this repo — `demo/inject_crisis.py` — and it is labelled as an
-injection in the UI when it runs.
+one place in this repo, `demo/inject_crisis.go`, and it is labelled as an
+injection in the UI when it runs. `web/` has its own synthetic set in
+`web/lib/demoData.ts` for a deliberately fictional brand, labelled in the top
+bar and in the page footnote.
 
 ---
 
@@ -88,6 +90,7 @@ injection in the UI when it runs.
 
 If Anakin adds X, Instagram or Play Store to Wire before the deadline, the
 change is small by construction: a new file at
-`shared/bp_core/sources/<name>.py` implementing the one adapter function, plus
-that source added to the brand's `sources` list. No contract change, no schema
+`internal/anakin/sources/<name>.go` holding one unexported adapter, one line
+added to `sources.Registry`, plus that source added to the brand's `sources`
+list. The adapter signature and the registry are in CONTRACTS §4. No contract change, no schema
 change, no orchestrator change. The enum already has the values.
