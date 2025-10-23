@@ -170,7 +170,7 @@ instead of panicking, it stops being a compile target and starts being a lie.
       `DATABASE_URL` is unset so a laptop without Docker still runs the rest;
       CI always sets it, so the skip never hides a CI failure.
 - [ ] `db/CLAUDE.md` and the `001_init.sql` header were repointed at
-      `internal/models/` in `70c0ea1`. If anything you build here contradicts
+      `internal/models/` in `fa08f78`. If anything you build here contradicts
       what they now say, the code wins and you correct the doc in the same
       commit, per repo rule 12 and 13.
 - [ ] Paste the output, commit.
