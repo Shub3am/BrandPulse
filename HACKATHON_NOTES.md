@@ -174,6 +174,17 @@ its own synthetic set in `web/lib/demoData.ts`, for a deliberately fictional
 brand, labelled in the top bar and in the page footnote. Both labels are
 load-bearing, not decoration.
 
+### 2026-09-20 — main — the freeze is `phase0-contracts-go` and all six worktrees sit on it
+
+`phase0-contracts` is the superseded Python freeze. It stays in the repo as
+history, because the deleted parity test is worth reading before porting it
+(`git show phase0-contracts:shared/tests/test_contract_schema_parity.py`), but
+nothing branches from it any more.
+
+All six worktrees were fast-forwarded to `main` at the same commit. Verified
+clean and zero commits ahead first, so no work was discarded. There is no
+Python anywhere in the tree: the language set is Go, TypeScript and SQL.
+
 ### 2026-09-20 — main — four things already broken in `web/`, found before B6 started
 
 Recorded here so B6 does not rediscover them and nobody calls them regressions.
