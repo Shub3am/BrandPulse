@@ -26,6 +26,10 @@ Newest entry at the bottom of its section.
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
+| B2, B5 | **you** | Credentials. There is no `.env` and no `.env.example` in this repo. `ANAKIN_API_KEY`, the Nasiko CLI login and a DronaHQ account are all unset, so `BP_FIXTURE_MODE=live` cannot run and `nasiko deploy` cannot authenticate. Nothing reaches production without these. | open, **hard blocker on "live"** |
+| B5 | main | `docs/research/dronahq.md` does not exist. Anakin and Nasiko each have a verified research file; DronaHQ, which is one of the three required platforms, has none. B5 builds the WhatsApp agent and the ops dashboard on assumptions. | open |
+| B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
+| B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
