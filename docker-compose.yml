@@ -1,0 +1,49 @@
+# Local Postgres for all seven tracks.
+#
+# This file is on main and frozen alongside the contracts, because six agents
+# working in parallel must share one database definition. Six tracks each
+# inventing a Postgres is six schemas, and the integration agent would spend
+# its whole window reconciling them instead of testing.
+#
+# It must not grow application services. The nine agents run on Nasiko, not
+# here. Adding a bp-* service to this file would give every track a second,
+# divergent way to run an agent.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: brandpulse-postgres
+    environment:
+      POSTGRES_USER: brandpulse
+      POSTGRES_PASSWORD: brandpulse
+      POSTGRES_DB: brandpulse
+      # Deterministic collation. Postgres orders text by the host's locale
+      # otherwise, so ORDER BY on a topic label differs between a mac laptop
+      # and CI, and a fixture assertion that passes locally fails in CI.
+      LANG: C
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      # 5433 on the host, not 5432. This machine already runs another
+      # project's Postgres on 5432 and `docker compose up` fails outright with
+      # "port is already allocated". Inside the container it is still 5432, so
+      # anything talking to it over the compose network is unaffected.
+      - "5433:5432"
+    volumes:
+      - brandpulse_pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty volume only. Re-running a migration against a
+      # populated volume is a no-op here, so `docker compose down -v` is how
+      # you pick up a schema change, not `up`.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # `pg_isready` alone returns true while initdb is still replaying the
+      # mount above, so a track can connect to a database that has no tables.
+      # Querying a real table is the only check that means "ready".
+      test: ["CMD-SHELL", "psql -U brandpulse -d brandpulse -c 'SELECT 1 FROM brand_profiles LIMIT 1' || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  brandpulse_pgdata:
