@@ -22,12 +22,14 @@ Why Go: [docs/decisions/001-go-for-agents.md](docs/decisions/001-go-for-agents.m
 | `web/` | Next.js product dashboard. [CLAUDE.md](web/CLAUDE.md) |
 | `bff/` | Fastify backend-for-frontend, the dashboard's only backend. |
 | `docs/` | Contracts, research, track briefs, decisions, pricing. |
+| `scripts/integration/` | End-to-end and deployed smoke tests. B7 owns them. |
 
 ## Run, test, deploy
 
 ```bash
-docker compose up -d postgres
-psql "$DATABASE_URL" -f db/migrations/001_init.sql
+cp .env.example .env                # DATABASE_URL points at port 5433, not 5432
+docker compose up -d postgres       # applies db/migrations on an empty volume
+docker compose ps                   # must show (healthy) before anything else
 go build ./... && go vet ./... && BP_FIXTURE_MODE=replay go test ./...
 ./demo/run_demo.sh                 # the 2-minute flow
 nasiko validate && nasiko deploy   # from agents/bp-<name>/

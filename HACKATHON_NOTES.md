@@ -178,6 +178,32 @@ its own synthetic set in `web/lib/demoData.ts`, for a deliberately fictional
 brand, labelled in the top bar and in the page footnote. Both labels are
 load-bearing, not decoration.
 
+### 2026-09-20 — main — Postgres is on host port 5433, and there is no `psql` on this machine
+
+Two things every track would otherwise hit separately, both verified by running
+it:
+
+**Port 5433, not 5432.** Another project's container (`inboxready-postgres`)
+already binds 5432 on this machine, and `docker compose up` does not degrade
+gracefully, it fails outright with "port is already allocated". That container
+is somebody else's running service and we do not stop it. Inside our container
+the port is still 5432, so nothing on the compose network changes.
+`DATABASE_URL` is `postgresql://brandpulse:brandpulse@localhost:5433/brandpulse`
+and `.env.example` carries it.
+
+**There is no `psql` binary on the host.** Use
+`docker exec brandpulse-postgres psql -U brandpulse -d brandpulse -c '...'`.
+The old root CLAUDE.md told you to run `psql "$DATABASE_URL" -f
+db/migrations/001_init.sql` by hand; that command does not exist here and the
+migration now applies itself through the compose mount anyway.
+
+**The migration runs only on an empty volume.** `/docker-entrypoint-initdb.d`
+is initdb-time only, so `docker compose down -v` is how you pick up a schema
+change. Plain `up` will silently keep the old schema.
+
+Verified from a cold volume: `(healthy)` in about 6 seconds, 12 tables,
+7 enums, port reachable from the host.
+
 ### 2026-09-20 — main — the freeze is `phase0-contracts-go` and all six worktrees sit on it
 
 `phase0-contracts` is the superseded Python freeze. It stays in the repo as

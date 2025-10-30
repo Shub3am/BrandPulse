@@ -21,7 +21,10 @@ an LLM, so every alert can show the rule that fired it.
 **Tech Stack:** Go 1.27 for all nine agents (`github.com/a2aproject/a2a-go/v2`
 v2.5.0, `net/http`, `pgx/v5`, `errgroup`, stdlib `testing`), Postgres 16,
 TypeScript for the front end (Next.js 16 dashboard, Fastify BFF), Docker,
-`nasiko deploy`, DronaHQ. Clustering and OpenTelemetry setup are hand-rolled in
+`nasiko deploy`, DronaHQ. Postgres 16 runs in Docker from a `docker-compose.yml`
+frozen on `main` alongside the contracts, on host port **5433**, because seven
+tracks in parallel need one database definition and 5432 is commonly taken.
+Clustering and OpenTelemetry setup are hand-rolled in
 `internal/cluster` and `internal/obs`; see
 [docs/decisions/001-go-for-agents.md](docs/decisions/001-go-for-agents.md) for
 why that trade was taken and what it costs.
@@ -98,6 +101,9 @@ Copied from the brief. Every task inherits these.
 | `dronahq/` | Exported WhatsApp agent + dashboard app, screenshots. | B5 |
 | `web/`, `bff/` | Next.js product dashboard and the Fastify BFF it calls. | B6 |
 | `docs/` | Architecture, setup, pricing, contracts, track briefs. | B5 (B1 owns CONTRACTS) |
+| `docker-compose.yml` | Postgres 16 on host port 5433. Frozen with the contracts. | B7 |
+| `.github/workflows/` | Zero-credit, zero-key CI. | B7 |
+| `scripts/integration/` | End-to-end test and the deployed smoke test. | B7 |
 
 ---
 
@@ -118,9 +124,18 @@ Python freeze and no track branches from it.
 
 ### Phase 1 — Foundation (B1 alone, ~60 min)
 
-B1 finishes `internal/` and `docker-compose.yml`. Every other track is blocked
-on the client stubs, so B1 lands the `anakin`, `llm` and `db` packages with
-**working `replay` mode and passing unit tests** before anything else.
+B1 finishes `internal/`. Every other track is blocked on the client stubs, so
+B1 lands the `anakin`, `llm` and `db` packages with **working `replay` mode and
+passing unit tests** before anything else.
+
+`docker-compose.yml` is not part of this phase. It is already on `main`, frozen
+in Phase 0, because seven tracks starting at once cannot each wait on B1 to
+define a database. B7 owns it.
+
+**B7 starts at the same moment as everyone else, not at the end.** Its Task 0
+is the CI workflow and the end-to-end test, both written before the code they
+test exists. An integrator that starts when the first PR lands is an integrator
+with nothing prepared.
 
 Because Go will not compile against a package that does not exist, B1's first
 commit is the **whole import surface as signatures with `panic("not
@@ -128,9 +143,9 @@ implemented")` bodies**, pushed to `main` inside the first twenty minutes.
 That unblocks five tracks before any of it works. This is the one place a stub
 is correct rather than lazy: it is a compile target, not a fake test pass.
 
-**Gate:** `docker compose up -d postgres && go test ./internal/... -v` green,
-and `BP_FIXTURE_MODE=replay` returns a canned response for every one of the
-five Anakin methods.
+**Gate:** `docker compose up -d postgres` shows `(healthy)`,
+`go test ./internal/... -v` is green, and `BP_FIXTURE_MODE=replay` returns a
+canned response for every one of the five Anakin methods.
 
 ### Phase 2 — Data acquisition and the credit spend (B2 alone for the spend)
 
@@ -168,12 +183,16 @@ dashboard already renders against demo data; only the BFF needs Phase 3.
 the DronaHQ dashboard renders a live run; the WhatsApp agent delivers a brief;
 `web/` renders a real run with no `demoData` import left in `app/page.tsx`.
 
-### Phase 5 — Demo hardening (all tracks, converging)
+### Phase 5 — Demo hardening (B7 leads, all tracks on call)
 
-Run the full 2-minute demo end to end, three times, on the real deployment.
-Fix what breaks. Record the fallback video.
+B7 runs the full 2-minute demo end to end, three times, on the real deployment,
+plus the nine-agent smoke test against real deployed URLs. Failures go back to
+the owning track with the output attached. B7 never fixes another track's logic
+to make a test pass.
 
-**Gate:** three consecutive clean runs of `demo/run_demo.sh`.
+**Gate:** three consecutive clean runs of `demo/run_demo.sh` against the real
+deployment, `scripts/integration/smoke.sh` green, and every blank in the
+numbers table either filled with a measurement or marked "not measured".
 
 ---
 
@@ -183,21 +202,29 @@ Each track gets a git worktree and a branch. Full briefs in `docs/tracks/`.
 
 | Track | Branch | Owns | Blocked by |
 |---|---|---|---|
-| B1 | `track/b1-core` | `internal/` (except `cluster`), `db/`, `docker-compose.yml`, CI | — |
+| B1 | `track/b1-core` | `internal/` (except `cluster`), `db/` | — |
 | B2 | `track/b2-collect` | `internal/anakin/sources/`, `bp-collector`, `bp-onboarder`, fixtures | B1 signature commit |
 | B3 | `track/b3-intel` | `internal/cluster/`, `bp-enricher`, `bp-clusterer`, `bp-sov`, `eval/` | B1 signature commit; B2 fixtures |
 | B4 | `track/b4-pipeline` | `bp-detector`, `bp-responder`, `bp-briefer`, `bp-orchestrator`, `demo/` | B1 signature commit |
 | B5 | `track/b5-deploy` | AgentCards, Dockerfiles, Nasiko deploy, DronaHQ, docs, pitch | B2–B4 |
 | B6 | `track/b6-web` | `web/`, `bff/` | nothing for `web/`; B4 for `bff/` |
+| B7 | `main` | merge order, `docker-compose.yml`, `.github/workflows/`, end-to-end test, release tag | everyone, by design |
 
-**Integration:** each track opens a PR into `main` at its phase gate. B1 is the
-integrator and resolves conflicts. Nobody merges their own track into another's.
+**Integration is its own track.** Each track opens a PR into `main` at its
+phase gate and **B7 merges them, one at a time, green between each**. B1 owns
+the contract and answers questions; it does not merge, because the track still
+writing `internal/` cannot also be the queue every other track waits in.
+Nobody merges their own track into another's.
+
+**Merge order, dependency first: B1 → B2 → B3 → B4 → B6 → B5.** B5 goes last
+because it is the only track that touches all nine agent directories.
 ---
 
 ## Worktrees
 
 Six worktrees, all branched from the `phase0-contracts-go` tag so every track
-starts on identical frozen interfaces.
+starts on identical frozen interfaces. B7 has no worktree: it works on `main`
+in the primary checkout, because merging is what it does.
 
 | Track | Branch | Worktree |
 |---|---|---|
@@ -207,6 +234,7 @@ starts on identical frozen interfaces.
 | B4 | `track/b4-pipeline` | `../brandpulse-b4-pipeline` |
 | B5 | `track/b5-deploy` | `../brandpulse-b5-deploy` |
 | B6 | `track/b6-web` | `../brandpulse-b6-web` |
+| B7 | `main` | the primary checkout, `brandpulse/` |
 
 Work only inside your own worktree. `git worktree list` shows them all.
 

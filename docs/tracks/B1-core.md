@@ -1,10 +1,11 @@
 # Track B1: Shared core, database, CI
 
 **Branch:** `track/b1-core`
-**Owns:** `internal/` (every package except `cluster/`), `db/`,
-`docker-compose.yml`, `.github/workflows/`
-**Blocks:** every other track. Land Task 1 fast, land Phase 1 fast, then stay on
-call as integrator.
+**Owns:** `internal/` (every package except `cluster/`), `db/`
+**Not yours:** `docker-compose.yml` and `.github/workflows/` are B7's.
+**Blocks:** every other track. Land Task 1 fast, then land Phase 1 fast.
+Merging and end-to-end testing are **B7's**, not yours. You stay on call to
+answer contract questions and to land contract fixes on `main`.
 
 Read [PLAN.md](../../PLAN.md) and [CONTRACTS.md](../CONTRACTS.md) first. You are
 the owner of `CONTRACTS.md`; other tracks propose changes, you land them.
@@ -146,11 +147,21 @@ instead of panicking, it stops being a compile target and starts being a lie.
 ## Task 4: Database layer
 
 **Files:** `internal/db/db.go`, `internal/db/migrate.go`,
-`internal/db/db_test.go`, `docker-compose.yml`, `db/CLAUDE.md`
+`internal/db/db_test.go`, `db/CLAUDE.md`
 
-- [ ] `docker-compose.yml` with `postgres:16` on 5432, a named volume, a
-      healthcheck, and a `DATABASE_URL` default of
-      `postgresql://brandpulse:brandpulse@localhost:5432/brandpulse`.
+- [ ] **`docker-compose.yml` already exists on `main` and is not yours.** It
+      was moved to Phase 0 and is B7's, because seven tracks working in
+      parallel must share one database definition. `docker compose up -d
+      postgres` and confirm `(healthy)`.
+- [ ] **The host port is 5433, not 5432.** Another project's Postgres commonly
+      holds 5432 and compose then refuses to start at all. `DATABASE_URL` is
+      `postgresql://brandpulse:brandpulse@localhost:5433/brandpulse`, and
+      `.env.example` on `main` has it.
+- [ ] The migration is applied by the compose mount at
+      `/docker-entrypoint-initdb.d`, which runs **only on an empty volume**.
+      `docker compose down -v` is how you pick up a schema change; `up` alone
+      will not. `db.Migrate` still exists for the deployed path, where there is
+      no compose.
 - [ ] `go get github.com/jackc/pgx/v5`.
 - [ ] `db.Pool(ctx context.Context) (*pgxpool.Pool, error)`: one pool, built
       lazily from `DATABASE_URL` behind a `sync.Once`, plus `db.Close()`.
@@ -384,32 +395,40 @@ nobody hand-rolls the artifact envelope.
       produces a task failure.
 - [ ] Paste, commit.
 
-## Task 12: CI
+## Task 12: Hand the no-network guarantee to B7
 
-**Files:** `.github/workflows/ci.yml`
+**Files:** `internal/anakin/nonetwork.go`, `HACKATHON_NOTES.md`
 
-- [ ] Postgres 16 service container, Go 1.27, `go build ./...`, `go vet ./...`,
-      apply migrations, then `BP_FIXTURE_MODE=replay go test ./... -race` with
-      **no secrets configured**. The job must be green on a fork with access to
-      no key. That is the point.
-- [ ] `go vet` is a failing step, not advisory. CONTRACTS §4 makes it part of
-      the definition of done for every track.
-- [ ] `-race` because the budget's cached total and the orchestrator's
-      `errgroup` fan-out are the two places a data race hides until stage.
-- [ ] **There is no `pytest-socket` in Go**, so no-network is enforced by
-      construction instead: every test injects `anakin.NoNetwork()`, CI sets no
-      `ANAKIN_API_KEY` and no `OPENAI_API_KEY`, and `BP_FIXTURE_MODE=replay` is
-      the default. Add one grep step failing the build if any `_test.go` file
-      names `http.DefaultClient`, which is the closest thing to the socket ban
-      we had.
-- [ ] Commit.
+`.github/workflows/ci.yml` is **B7's** and they write it in their Task 0. What
+CI cannot do without you is enforce no-network, because Go has no
+`pytest-socket`. That enforcement is a package, not a workflow, so it is yours.
+
+- [ ] `anakin.NoNetwork() *http.Client`: a client whose `Transport` returns an
+      error on every round trip. Every track's tests inject it. This is the
+      Go replacement for the socket ban and it is the only one available.
+- [ ] Post in `HACKATHON_NOTES.md` exactly what B7's workflow must contain for
+      the guarantee to hold: Postgres 16 service container, Go 1.27,
+      `BP_FIXTURE_MODE=replay`, `-race` (the budget's cached total and the
+      orchestrator's `errgroup` fan-out are where a data race hides until
+      stage), `go vet` as a failing step rather than advisory, **no
+      `ANAKIN_API_KEY` and no `OPENAI_API_KEY` configured at all**, and a grep
+      step failing the build if any `_test.go` names `http.DefaultClient`.
+- [ ] The job must be green for someone holding no key whatsoever. That is the
+      point of the whole arrangement, and it is the thing B7 cannot infer.
+- [ ] Test `NoNetwork` itself, paste, commit.
 
 ---
 
-## Integrator duties (after Phase 1)
+## Contract-owner duties (after Phase 1)
 
-- Review and merge every track PR into `main`.
-- Own conflict resolution in `internal/` and `db/`.
+**You do not merge and you do not run the end-to-end test.** Those are B7's.
+Six tracks merging through the same agent that is still writing `internal/` is
+the bottleneck the seventh track exists to remove.
+
+- Answer contract questions from the other six. You are the only one who has
+  read the whole import surface.
+- Own conflict resolution **inside `internal/` and `db/`** when B7 hits one.
+  B7 resolves wiring; you resolve meaning.
 - Land any agreed contract change on `main` yourself, then tell every track to
   rebase. Post it in `HACKATHON_NOTES.md`.
 - Migrations after Phase 1 are **additive only**: a new file, never an edit to
@@ -425,8 +444,8 @@ nobody hand-rolls the artifact envelope.
 ## Definition of done
 
 ```bash
-docker compose up -d postgres
-export DATABASE_URL=postgresql://brandpulse:brandpulse@localhost:5432/brandpulse
+docker compose up -d postgres && docker compose ps   # must show (healthy)
+export DATABASE_URL=postgresql://brandpulse:brandpulse@localhost:5433/brandpulse
 go build ./... && go vet ./...
 BP_FIXTURE_MODE=replay go test ./internal/... -race -count=1 -v
 ```
