@@ -9,6 +9,14 @@
 # here. Adding a bp-* service to this file would give every track a second,
 # divergent way to run an agent.
 
+# Pinned, not derived. Compose otherwise names the project after the directory,
+# so each of the seven worktrees would define its own project, its own volume
+# and its own container, and the second `docker compose up` would fail with
+# "container name is already in use". Pinning the name makes `up` from any
+# worktree resolve to the same database, which is what parallel tracks want:
+# one schema, one seed, one place a bug reproduces.
+name: brandpulse
+
 services:
   postgres:
     image: postgres:16
