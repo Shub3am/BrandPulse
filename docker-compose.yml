@@ -35,7 +35,11 @@ services:
       # project's Postgres on 5432 and `docker compose up` fails outright with
       # "port is already allocated". Inside the container it is still 5432, so
       # anything talking to it over the compose network is unaffected.
-      - "5433:5432"
+      #
+      # Bound to 127.0.0.1, not 0.0.0.0. The password here is `brandpulse`, so
+      # a bare "5433:5432" would hand the whole database to anyone on the same
+      # cafe wifi. Every consumer is a process on this laptop.
+      - "127.0.0.1:5433:5432"
     volumes:
       - brandpulse_pgdata:/var/lib/postgresql/data
       # Runs once, on an empty volume only. Re-running a migration against a
