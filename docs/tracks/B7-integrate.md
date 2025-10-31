@@ -45,6 +45,13 @@ spending on the thing that actually takes time.
       and 7 enums with `docker exec brandpulse-postgres psql -U brandpulse -d
       brandpulse -c '\dt'`. If that fails, nothing downstream can work and it
       is your first bug.
+
+      There is **one** Postgres for all seven of you, not one per worktree.
+      `docker-compose.yml` pins `name: brandpulse`, so `up` from any checkout
+      attaches to the same container and the same volume. That is deliberate:
+      you cannot integrate six tracks against six databases. The cost is that
+      `docker compose down -v` from any worktree destroys everyone's data, so
+      say so in `HACKATHON_NOTES.md` before you run it.
 - [ ] Write the end-to-end test **before** the code it tests exists. It is the
       only test in the repo that is allowed to be red for hours. Name it
       `scripts/integration/e2e_test.go` with a `//go:build integration` tag so

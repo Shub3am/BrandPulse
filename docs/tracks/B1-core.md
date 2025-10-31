@@ -162,6 +162,11 @@ instead of panicking, it stops being a compile target and starts being a lie.
       `docker compose down -v` is how you pick up a schema change; `up` alone
       will not. `db.Migrate` still exists for the deployed path, where there is
       no compose.
+- [ ] **It is one shared container, not one per worktree.** The compose file
+      pins `name: brandpulse`, so your `up` attaches to whatever is already
+      running. Your `down -v` therefore wipes the other six tracks' data too.
+      You own `001_init.sql`, so you are the track most likely to need it: say
+      so in `HACKATHON_NOTES.md` before you run it.
 - [ ] `go get github.com/jackc/pgx/v5`.
 - [ ] `db.Pool(ctx context.Context) (*pgxpool.Pool, error)`: one pool, built
       lazily from `DATABASE_URL` behind a `sync.Once`, plus `db.Close()`.

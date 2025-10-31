@@ -204,6 +204,37 @@ change. Plain `up` will silently keep the old schema.
 Verified from a cold volume: `(healthy)` in about 6 seconds, 12 tables,
 7 enums, port reachable from the host.
 
+### 2026-09-20 — main — one Postgres for all seven worktrees, and it is bound to loopback
+
+`docker compose up -d postgres` from the B3 worktree failed:
+
+```
+Conflict. The container name "/brandpulse-postgres" is already in use by
+container "fb0f8a04c62a...". You have to remove (or rename) that container
+to be able to reuse that name.
+```
+
+Compose names the project after the directory. Seven checkouts meant seven
+projects, each wanting its own volume but all colliding on the one fixed
+`container_name`. It had already created a stray
+`brandpulse-b3-intel_brandpulse_pgdata` before it died.
+
+`docker-compose.yml` now pins `name: brandpulse` at the top level, so `up`
+from any worktree resolves to the same project and attaches to the running
+container instead of racing it. Consequences to know:
+
+- **One database, shared.** That is what integration needs. It also means a
+  track that writes junk rows writes them into everyone's database.
+- **`docker compose down -v` from any worktree wipes it for everyone.** Post
+  here before you run it. `down` without `-v` is harmless.
+- **You do not need to start it.** If it is already `(healthy)`, `up` is a
+  no-op. Check with `docker compose ps` first.
+
+The published port is also `127.0.0.1:5433:5432` now, not `5433:5432`. The
+password is `brandpulse`, and the bare form publishes on `0.0.0.0`, which
+hands the database to everyone on the same wifi. Nothing off this laptop
+needs it.
+
 ### 2026-09-20 — main — the freeze is `phase0-contracts-go` and all six worktrees sit on it
 
 `phase0-contracts` is the superseded Python freeze. It stays in the repo as
