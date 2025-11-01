@@ -26,8 +26,8 @@ Newest entry at the bottom of its section.
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
-| B2, B5 | **you** | Credentials. There is no `.env` and no `.env.example` in this repo. `ANAKIN_API_KEY`, the Nasiko CLI login and a DronaHQ account are all unset, so `BP_FIXTURE_MODE=live` cannot run and `nasiko deploy` cannot authenticate. Nothing reaches production without these. | open, **hard blocker on "live"** |
-| B5 | main | `docs/research/dronahq.md` does not exist. Anakin and Nasiko each have a verified research file; DronaHQ, which is one of the three required platforms, has none. B5 builds the WhatsApp agent and the ops dashboard on assumptions. | open |
+| B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
+| B5 | main | `docs/research/dronahq.md` does not exist. Anakin and Nasiko each have a verified research file; DronaHQ, which is one of the three required platforms, has none. B5 builds the WhatsApp agent and the ops dashboard on assumptions. | in progress |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
@@ -41,6 +41,29 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — the Anakin key is live, and `/v1/search` wants `prompt`
+
+`ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are set in `.env` in all seven checkouts.
+`.env` is gitignored in every one of them, the keys appear nowhere in tracked
+files or in any commit reachable from any ref, and the files are `0600`. If you
+rotate a key you rotate it in seven places.
+
+The Anakin key was verified without spending a credit. Anakin does not bill
+failed calls, so `POST /v1/search` with an empty body `{}` proves auth on its
+own: the key returns `400 {"error":"invalid_request","message":"Prompt is
+required"}`, which is a request that got past authentication and then failed
+validation.
+
+That error is itself a finding. `docs/research/anakin.md` §3 documents the
+Search body as carrying a query, and the live API calls the required field
+**`prompt`**. B2, confirm the exact field name in Task 1 before writing the
+adapter, and correct the research doc in the same commit. This is the kind of
+thing Task 1 exists to catch.
+
+`BP_FIXTURE_MODE` stays `replay` everywhere. Holding a key is not a reason to
+spend it. The 300 credits are still B2's to spend once, after a dry-run
+estimate.
 
 ### 2026-09-20 — main — Anakin Wire does not carry four of the brief's sources
 
