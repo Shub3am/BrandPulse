@@ -28,7 +28,7 @@ Why Go: [docs/decisions/001-go-for-agents.md](docs/decisions/001-go-for-agents.m
 
 ```bash
 cp .env.example .env                # DATABASE_URL points at port 5433, not 5432
-docker compose up -d postgres       # applies db/migrations on an empty volume
+docker compose up -d --no-recreate postgres   # one shared DB, see rules below
 docker compose ps                   # must show (healthy) before anything else
 go build ./... && go vet ./... && BP_FIXTURE_MODE=replay go test ./...
 ./demo/run_demo.sh                 # the 2-minute flow
@@ -37,15 +37,12 @@ nasiko validate && nasiko deploy   # from agents/bp-<name>/
 
 ## Repo-wide rules
 
-- **Zero-credit, zero-key CI.** `BP_FIXTURE_MODE=replay` is the default
-  everywhere. A test that needs `ANAKIN_API_KEY` is a broken test.
-- **`record` mode is spent once**, by B2, with a dry-run estimate printed first.
-  300 free credits total and no more.
+- **Zero-credit CI.** `BP_FIXTURE_MODE=replay`. A test needing a key is broken.
+- **`record` mode is spent once**, by B2, dry-run estimate first. 300 credits.
 - **No LLM in `bp-detector`.** Alerting is statistics, and every alert carries
   the numbers and thresholds that fired it.
 - **Nothing auto-posts.** There is no posting code path here. Do not add one.
-- **Redact before the prompt.** `redact.PII` runs on every mention text before
-  it reaches a model.
+- **Redact before the prompt.** `redact.PII` runs on every mention text.
 - **LLM traffic only via `OPENAI_BASE_URL`.** No provider SDK config in an agent.
 - **Typed JSON artifacts.** Every agent returns one `application/json` artifact
   that is an `internal/models` struct. DronaHQ binds to it directly.
@@ -55,6 +52,9 @@ nasiko validate && nasiko deploy   # from agents/bp-<name>/
   before persisting. Go has no field defaults and pydantic used to supply them.
 - **No source is faked.** If a probe fails, that source does not appear in a
   fixture, a count or a sentence. Synthetic data is labelled in the UI.
+- **One Postgres for all seven worktrees.** `docker compose down -v` wipes every
+  track's data, so announce it first. Plain `up` from a second worktree restarts
+  the container, which is why the command above passes `--no-recreate`.
 - **Coordinate in [HACKATHON_NOTES.md](HACKATHON_NOTES.md)**, not in commit
   messages. Do not read another track's code.
 - Commit small, one logical change each, conventional-commit prefix.

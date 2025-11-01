@@ -382,9 +382,12 @@ product surface and the two do not share screens.
       deterministic, where every platform is load-bearing, and the two
       front-end surfaces with their audiences so the DronaHQ/`web/` split reads
       as a decision rather than an accident.
-- [ ] `SETUP.md`: the Go toolchain version, `docker compose up -d postgres`, the
-      migration, `BP_FIXTURE_MODE=replay`, and the module path. Somebody cloning
-      this at 2am should not need to ask.
+- [ ] `SETUP.md`: the Go toolchain version,
+      `docker compose up -d --no-recreate postgres`, the migration,
+      `BP_FIXTURE_MODE=replay`, and the module path. Somebody cloning this at
+      2am should not need to ask. A fresh clone is a single checkout, so say
+      that `--no-recreate` is there for the seven-worktree case and is a no-op
+      for them.
 - [ ] `PRICING.md`: unit economics from **B3's real `go run ./eval/cost`
       output**, versus Brandwatch/Sprinklr/Meltwater list prices. If the real
       number misses the ₹15 target, print it anyway and explain what would close

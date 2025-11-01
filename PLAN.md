@@ -143,7 +143,7 @@ implemented")` bodies**, pushed to `main` inside the first twenty minutes.
 That unblocks five tracks before any of it works. This is the one place a stub
 is correct rather than lazy: it is a compile target, not a fake test pass.
 
-**Gate:** `docker compose up -d postgres` shows `(healthy)`,
+**Gate:** `docker compose up -d --no-recreate postgres` shows `(healthy)`,
 `go test ./internal/... -v` is green, and `BP_FIXTURE_MODE=replay` returns a
 canned response for every one of the five Anakin methods.
 
@@ -286,8 +286,8 @@ Nothing is "done" without pasted output. Per repo rule: test suite for
 correctness, benchmark for anything on a hot path, real numbers in `eval/`.
 
 ```bash
-docker compose up -d postgres
-psql "$DATABASE_URL" -f db/migrations/001_init.sql
+docker compose up -d --no-recreate postgres  # shared across worktrees
+docker compose ps                            # the migration applies itself
 go build ./... && go vet ./...              # vet is part of done, not optional
 BP_FIXTURE_MODE=replay go test ./...        # must pass with no network, no keys
 go run ./eval/accuracy                      # sentiment/intent accuracy, real

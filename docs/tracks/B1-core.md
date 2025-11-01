@@ -152,7 +152,7 @@ instead of panicking, it stops being a compile target and starts being a lie.
 - [ ] **`docker-compose.yml` already exists on `main` and is not yours.** It
       was moved to Phase 0 and is B7's, because seven tracks working in
       parallel must share one database definition. `docker compose up -d
-      postgres` and confirm `(healthy)`.
+      --no-recreate postgres` and confirm `(healthy)`.
 - [ ] **The host port is 5433, not 5432.** Another project's Postgres commonly
       holds 5432 and compose then refuses to start at all. `DATABASE_URL` is
       `postgresql://brandpulse:brandpulse@localhost:5433/brandpulse`, and
@@ -449,7 +449,7 @@ the bottleneck the seventh track exists to remove.
 ## Definition of done
 
 ```bash
-docker compose up -d postgres && docker compose ps   # must show (healthy)
+docker compose up -d --no-recreate postgres && docker compose ps  # (healthy)
 export DATABASE_URL=postgresql://brandpulse:brandpulse@localhost:5433/brandpulse
 go build ./... && go vet ./...
 BP_FIXTURE_MODE=replay go test ./internal/... -race -count=1 -v

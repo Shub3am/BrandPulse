@@ -227,8 +227,12 @@ container instead of racing it. Consequences to know:
   track that writes junk rows writes them into everyone's database.
 - **`docker compose down -v` from any worktree wipes it for everyone.** Post
   here before you run it. `down` without `-v` is harmless.
-- **You do not need to start it.** If it is already `(healthy)`, `up` is a
-  no-op. Check with `docker compose ps` first.
+- **Always pass `--no-recreate`.** Plain `up` from a worktree that did not last
+  start the container recreates it, because the compose project labels carry
+  the absolute working directory and it differs per checkout. The data survives
+  (the volume is separate) but Postgres restarts under whoever is mid-test.
+  `docker compose up -d --no-recreate postgres` from three different worktrees
+  printed `Container brandpulse-postgres Running` three times, no restart.
 
 The published port is also `127.0.0.1:5433:5432` now, not `5433:5432`. The
 password is `brandpulse`, and the bare form publishes on `0.0.0.0`, which

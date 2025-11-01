@@ -277,7 +277,7 @@ the query first. A bad keyword burns credits at the same rate as a good one.
 ## Definition of done
 
 ```bash
-docker compose up -d postgres
+docker compose up -d --no-recreate postgres   # shared with every other track
 go build ./... && go vet ./...
 BP_FIXTURE_MODE=replay go test ./internal/anakin/sources/... \
   ./agents/bp-collector/... ./agents/bp-onboarder/... -v

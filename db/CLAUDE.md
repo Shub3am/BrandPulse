@@ -11,11 +11,19 @@ seeding lives in `demo/`.
 
 ## Entry points
 
-`migrations/001_init.sql` is the whole schema as of Phase 0. Apply with:
+`migrations/001_init.sql` is the whole schema as of Phase 0. You do not apply it
+by hand and there is no `psql` on the host. `docker-compose.yml` mounts this
+directory at `/docker-entrypoint-initdb.d`, so Postgres applies it itself, once,
+on an empty volume:
 
 ```bash
-psql "$DATABASE_URL" -f db/migrations/001_init.sql
+docker compose up -d --no-recreate postgres
+docker exec brandpulse-postgres psql -U brandpulse -d brandpulse -c '\dt'
 ```
+
+Changing the schema therefore means `docker compose down -v` and back up. That
+volume is shared by all seven worktrees, so announce it in `HACKATHON_NOTES.md`
+before you wipe it. `db.Migrate` covers the deployed path, where no compose runs.
 
 ## Invariants and gotchas
 

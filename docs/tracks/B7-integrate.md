@@ -41,7 +41,7 @@ make and then state in `HACKATHON_NOTES.md`.
 Do not wait idle for six PRs. Every hour you are blocked is an hour you are not
 spending on the thing that actually takes time.
 
-- [ ] `docker compose up -d postgres`, confirm `(healthy)`, confirm 12 tables
+- [ ] `docker compose up -d --no-recreate postgres`, confirm `(healthy)`, 12 tables
       and 7 enums with `docker exec brandpulse-postgres psql -U brandpulse -d
       brandpulse -c '\dt'`. If that fails, nothing downstream can work and it
       is your first bug.
@@ -49,9 +49,13 @@ spending on the thing that actually takes time.
       There is **one** Postgres for all seven of you, not one per worktree.
       `docker-compose.yml` pins `name: brandpulse`, so `up` from any checkout
       attaches to the same container and the same volume. That is deliberate:
-      you cannot integrate six tracks against six databases. The cost is that
+      you cannot integrate six tracks against six databases. Two consequences:
       `docker compose down -v` from any worktree destroys everyone's data, so
-      say so in `HACKATHON_NOTES.md` before you run it.
+      say so in `HACKATHON_NOTES.md` first; and plain `up` from a worktree that
+      did not last start it **recreates** the container, because the project
+      labels carry an absolute path. That is a Postgres restart under whoever
+      is mid-test, which is why every documented command passes
+      `--no-recreate`. Verified: three worktrees, three no-ops.
 - [ ] Write the end-to-end test **before** the code it tests exists. It is the
       only test in the repo that is allowed to be red for hours. Name it
       `scripts/integration/e2e_test.go` with a `//go:build integration` tag so

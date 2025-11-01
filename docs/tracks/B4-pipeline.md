@@ -300,7 +300,7 @@ than the rest.
 ## Definition of done
 
 ```bash
-docker compose up -d postgres
+docker compose up -d --no-recreate postgres   # shared with every other track
 go build ./... && go vet ./agents/... ./demo/...
 BP_FIXTURE_MODE=replay go test ./agents/bp-detector/... ./agents/bp-responder/... \
   ./agents/bp-briefer/... ./agents/bp-orchestrator/... ./demo/... -v
