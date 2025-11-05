@@ -27,7 +27,10 @@ Newest entry at the bottom of its section.
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
 | B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
-| B5 | main | `docs/research/dronahq.md` does not exist. Anakin and Nasiko each have a verified research file; DronaHQ, which is one of the three required platforms, has none. B5 builds the WhatsApp agent and the ops dashboard on assumptions. | in progress |
+| B5 | **you** | A **Meta for Developers** account with a WhatsApp Business API app and a WhatsApp Business number. This is the inbound half of the wedge and DronaHQ's trigger cannot be configured without it. | open |
+| B5 | **you** | A **Twilio** account (Account SID + Auth Token). Outbound WhatsApp is not native to DronaHQ, so this is the only verified way an alert reaches a handset. | open |
+| B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
+| B5 | **you** | A **WhatsApp message template approval**, or a demo script where the founder messages first. A 9am brief to someone silent for 24 hours is blocked by Meta policy, not by our code. Approval takes days. | open, **time-sensitive** |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
@@ -41,6 +44,40 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — DronaHQ is researched, and the obvious WhatsApp block is a trap
+
+`docs/research/dronahq.md` now exists, 409 lines, sourced. Three findings change
+the build.
+
+**1. The WhatsApp actionflow block cannot send anything.** It reads like an
+outbound sender. It opens WhatsApp on the *viewer's own device* with a prefilled
+message the viewer must press Send on. Its only two fields are Message Text and
+Phone Number, and it has no credential field because nothing leaves the server.
+Verified twice against
+`docs.dronahq.com/reference/actionflow-blocks/whatsapp/`, once by the research
+agent and once directly. Wiring the crisis alert to this is a demo where
+nothing arrives.
+
+**2. WhatsApp is two surfaces with two providers.** Inbound is DronaHQ's native
+trigger on Meta's WhatsApp Business API via webhook plus verify token, no third
+party. Outbound is the Twilio connector, `SendWhatsappTextMessage`, both numbers
+prefixed `whatsapp:`. That means two accounts, two credentials, and possibly two
+phone numbers.
+
+**3. "Binds to typed JSON directly" holds only for flat arrays.** Table Grid
+takes an array of objects natively, but DronaHQ's own docs say direct binding
+*"will work only on JSON data which isn't too nested"* and push deeper shapes
+through SQL-over-JSON or DQL. A struct-of-structs artifact reintroduces exactly
+the translation layer CONTRACTS wanted to avoid. B5 and B1: check that each
+artifact exposes a flat top-level array per intended table.
+
+Also: the `sk_` key is an **Agentic platform** key, header `api-key`, never
+`Authorization: Bearer`. Agent Starter caps at **10 tools per agent** and forces
+"Powered by DronaHQ" branding, which with nine Go agents plus Twilio plus
+Postgres is already over the line. Agent export is undocumented, so
+`dronahq/whatsapp-agent.json` may have to become a runbook; that is B5's first
+console check.
 
 ### 2026-09-20 — main — the Anakin key is live, and `/v1/search` wants `prompt`
 

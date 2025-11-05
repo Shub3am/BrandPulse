@@ -343,14 +343,30 @@ product surface and the two do not share screens.
 
 **Files:** `dronahq/whatsapp-agent.json`, setup notes, screenshots
 
-- [ ] **Day one, before anything else in this task:** confirm DronaHQ's
-      outbound WhatsApp send mechanics on the trigger page. The docs do not
-      cover them and the demo needs message delivery. **Fallback:** the Twilio
-      connector as a REST connector (`SendWhatsappTextMessage`, numbers prefixed
-      `whatsapp:`). Meta's 24-hour customer-service window applies either way,
-      which matters for a 9am brief to a user who has not messaged that day: the
-      brief may need an approved template. Find this out on day one, not at 8am
-      on demo day. The demo needs delivery, not a specific vendor.
+**First console check of the day:** find out whether a DronaHQ **Agent** can be
+exported to a file at all. App export is documented; agent export is not
+documented anywhere, and `dronahq/CLAUDE.md` currently promises a committed
+`whatsapp-agent.json`. If no export exists, that file becomes a written runbook
+plus screenshots and you correct `dronahq/CLAUDE.md` in the same commit. Find
+this out before you build the agent, not after.
+
+- [ ] **Read `docs/research/dronahq.md` §1 before you click anything.** This is
+      no longer an open question and the answer splits WhatsApp into two
+      surfaces with two different providers:
+      **inbound** is DronaHQ's native WhatsApp trigger on Meta's WhatsApp
+      Business API, **outbound** is the Twilio connector
+      (`SendWhatsappTextMessage`, both numbers prefixed `whatsapp:`).
+- [ ] **Do not wire the alert to the WhatsApp actionflow block.** It reads like
+      an outbound sender and is not one. It opens WhatsApp on the *viewer's own
+      device* with a prefilled box the viewer must press Send on, and it has no
+      credential field of any kind because nothing leaves the server. Verified
+      against the live docs page, twice. Wire the crisis alert to it and the
+      demo delivers nothing, at 3am, to nobody.
+- [ ] Meta's 24-hour customer-service window applies to the inbound path and
+      Twilio's template rules to the outbound one. A 9am brief to a founder who
+      has not messaged in 24 hours needs an **approved template**, and approval
+      takes time you will not have on demo day. Either start that approval now
+      or script the demo so the founder messages the agent first.
 - [ ] Create a DronaHQ **Agent**. Write its Instructions with the six
       components, putting our guardrails in "Rules & Guardrails": never promise
       a refund, never admit fault, never commit to a date, always escalate a

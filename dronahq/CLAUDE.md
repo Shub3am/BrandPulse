@@ -31,10 +31,20 @@ directly to the typed JSON artifacts.
 - **Approve/reject is the human-in-the-loop guardrail**, built from Table Grid +
   Button + Action Flow + Toast. DronaHQ's native HITL approval UI is unverified;
   those four controls are not.
-- **Outbound WhatsApp mechanics are unverified.** Fallback is the Twilio
-  connector with numbers prefixed `whatsapp:`. Meta's 24-hour customer-service
-  window applies either way, which matters for a 9am brief to someone who has
-  not messaged that day.
+- **WhatsApp is two surfaces, not one.** Inbound is DronaHQ's native trigger on
+  Meta's WhatsApp Business API. Outbound is the Twilio connector, numbers
+  prefixed `whatsapp:` on both ends. Different provider, different credential.
+- **The WhatsApp actionflow block is not a sender.** It opens WhatsApp on the
+  viewer's own device with a prefilled message they must press Send on, and it
+  has no credential field. It cannot deliver an alert. See
+  [docs/research/dronahq.md](../docs/research/dronahq.md) §1.
+- **Meta's 24-hour window applies inbound, Twilio's template rules outbound.** A
+  9am brief to someone who has not messaged in 24 hours needs an approved
+  template.
+- **Agent export is unverified.** App export is documented; nothing documents
+  exporting an Agent. If it does not exist, `whatsapp-agent.json` becomes a
+  runbook and screenshots, and this table changes with it. B5 checks the console
+  on day one.
 - **Guardrails go in the agent's "Rules & Guardrails" instructions**: never
   promise a refund, never admit fault, never commit to a date, always escalate a
   crisis to a human. The responder enforces the same list server-side. Both,
