@@ -339,9 +339,13 @@ product surface and the two do not share screens.
       Commit the JSON. Git Sync is self-hosted-only, so this is manual.
 - [ ] Commit with screenshots.
 
-## Task 8: DronaHQ WhatsApp agent
+## Task 8: DronaHQ chat agent
 
-**Files:** `dronahq/whatsapp-agent.json`, setup notes, screenshots
+**Files:** `dronahq/chat-agent.json`, setup notes, screenshots
+
+Renamed from "WhatsApp agent" on 2026-09-20. Same agent, same instructions,
+same tools, on the Chat trigger instead of a WhatsApp one. See
+`HACKATHON_NOTES.md`, the scope-change entry.
 
 **First console check of the day:** find out whether a DronaHQ **Agent** can be
 exported to a file at all. App export is documented; agent export is not
@@ -350,37 +354,32 @@ documented anywhere, and `dronahq/CLAUDE.md` currently promises a committed
 plus screenshots and you correct `dronahq/CLAUDE.md` in the same commit. Find
 this out before you build the agent, not after.
 
-- [ ] **Read `docs/research/dronahq.md` §1 before you click anything.** This is
-      no longer an open question and the answer splits WhatsApp into two
-      surfaces with two different providers:
-      **inbound** is DronaHQ's native WhatsApp trigger on Meta's WhatsApp
-      Business API, **outbound** is the Twilio connector
-      (`SendWhatsappTextMessage`, both numbers prefixed `whatsapp:`).
-- [ ] **Do not wire the alert to the WhatsApp actionflow block.** It reads like
-      an outbound sender and is not one. It opens WhatsApp on the *viewer's own
-      device* with a prefilled box the viewer must press Send on, and it has no
-      credential field of any kind because nothing leaves the server. Verified
-      against the live docs page, twice. Wire the crisis alert to it and the
-      demo delivers nothing, at 3am, to nobody.
-- [ ] Meta's 24-hour customer-service window applies to the inbound path and
-      Twilio's template rules to the outbound one. A 9am brief to a founder who
-      has not messaged in 24 hours needs an **approved template**, and approval
-      takes time you will not have on demo day. Either start that approval now
-      or script the demo so the founder messages the agent first.
+- [ ] **Read `docs/research/dronahq.md` §0 before you click anything.** WhatsApp
+      is **out of the MVP**. The product is observability over review and social
+      data; WhatsApp was one channel over the top and it was dragging a Meta app,
+      a WhatsApp Business number and a multi-day template approval onto the
+      critical path. Do not create a Meta app. Do not add a Twilio connector.
+      Do not configure a WhatsApp trigger. §1 of the research doc is the
+      verified answer for the day someone switches it on, and that day is not
+      today.
 - [ ] Create a DronaHQ **Agent**. Write its Instructions with the six
       components, putting our guardrails in "Rules & Guardrails": never promise
       a refund, never admit fault, never commit to a date, always escalate a
       crisis to a human.
-- [ ] Add the native **WhatsApp trigger** (Meta WhatsApp Business API via
-      webhook + verify token, configured in Meta → My Apps → WhatsApp →
-      Configuration). Inbound fields: `contacts[0].wa_id`,
-      `contacts[0].profile.name`, `messages[0].text.body`.
+- [ ] Put it on the **Chat** trigger. No external account, works the moment the
+      agent exists, and it is the same agent that later gains a WhatsApp trigger
+      alongside Chat rather than instead of it.
+- [ ] Add a **Webhook** trigger so `bp-detector` can push a crisis in. It takes
+      the `api-key` header and returns structured JSON synchronously. This is
+      the verified inbound door for our Go agents.
 - [ ] Attach the agent's tools: REST connectors to bp-onboarder (onboarding
       conversation), bp-briefer (on-demand query) and bp-responder (draft a
       reply).
-- [ ] `WhatsappShort` is capped at `models.WhatsappShortLimit` (600) characters
-      with no tables and no markdown links, and bp-briefer already enforces it.
-      Bind the WhatsApp message to that field, not to `Markdown`.
+- [ ] `WhatsappShort` keeps its name and its `models.WhatsappShortLimit` (600)
+      cap. Do not rename the field, it is frozen in `internal/models` and
+      renaming it is a tree-wide break for a cosmetic gain. It is the short,
+      no-tables, no-markdown-links rendering, and it is what the chat bubble
+      binds to. `Markdown` is for the dashboard.
 - [ ] Add a **Scheduler trigger** for the 9am daily brief.
 - [ ] Test the three flows: onboard, daily brief, alert with a "Draft reply"
       action. Nothing auto-posts: the draft goes to a human, always.

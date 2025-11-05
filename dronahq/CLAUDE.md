@@ -2,8 +2,8 @@
 
 ## What this module owns
 
-The two front ends, exported from DronaHQ as JSON and committed here: the
-WhatsApp agent brand owners talk to, and the analyst dashboard.
+The two front ends, exported from DronaHQ as JSON and committed here: the chat
+agent brand owners talk to, and the analyst dashboard.
 
 ## What it must not know about
 
@@ -14,7 +14,7 @@ directly to the typed JSON artifacts.
 
 | File | What it is |
 |---|---|
-| `whatsapp-agent.json` | Exported DronaHQ Agent: onboarding, daily brief, alerts. |
+| `chat-agent.json` | Exported DronaHQ Agent: onboarding, daily brief, alerts. On the Chat trigger. |
 | `dashboard-app.json` | Exported DronaHQ app: mentions, sentiment, SOV, topics, alerts, cost. |
 | `README.md` | Connector setup, trigger config, what to click to rebuild it. |
 | `screenshots/` | Proof for the PR and the pitch. |
@@ -31,16 +31,15 @@ directly to the typed JSON artifacts.
 - **Approve/reject is the human-in-the-loop guardrail**, built from Table Grid +
   Button + Action Flow + Toast. DronaHQ's native HITL approval UI is unverified;
   those four controls are not.
-- **WhatsApp is two surfaces, not one.** Inbound is DronaHQ's native trigger on
-  Meta's WhatsApp Business API. Outbound is the Twilio connector, numbers
-  prefixed `whatsapp:` on both ends. Different provider, different credential.
-- **The WhatsApp actionflow block is not a sender.** It opens WhatsApp on the
-  viewer's own device with a prefilled message they must press Send on, and it
-  has no credential field. It cannot deliver an alert. See
-  [docs/research/dronahq.md](../docs/research/dronahq.md) §1.
-- **Meta's 24-hour window applies inbound, Twilio's template rules outbound.** A
-  9am brief to someone who has not messaged in 24 hours needs an approved
-  template.
+- **WhatsApp is out of the MVP.** The chat agent runs on the **Chat** trigger
+  and `bp-detector` pushes in through the **Webhook** trigger. Neither needs an
+  external account. WhatsApp, Slack and email are post-MVP channels that read
+  the same `alerts` rows. See
+  [docs/research/dronahq.md](../docs/research/dronahq.md) §0.
+- **If WhatsApp is ever switched on**, §1 of that file is the verified answer:
+  inbound is Meta's WhatsApp Business API, outbound is a REST connector to
+  Meta's Cloud API, and the WhatsApp actionflow block is a client-side deep link
+  that cannot deliver anything. Do not reach for that block.
 - **Agent export is unverified.** App export is documented; nothing documents
   exporting an Agent. If it does not exist, `whatsapp-agent.json` becomes a
   runbook and screenshots, and this table changes with it. B5 checks the console

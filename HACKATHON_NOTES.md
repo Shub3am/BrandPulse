@@ -27,10 +27,8 @@ Newest entry at the bottom of its section.
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
 | B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
-| B5 | **you** | A **Meta for Developers** account with a WhatsApp Business API app and a WhatsApp Business number. This is the inbound half of the wedge and DronaHQ's trigger cannot be configured without it. | open |
-| B5 | **you** | A **Twilio** account (Account SID + Auth Token). Outbound WhatsApp is not native to DronaHQ, so this is the only verified way an alert reaches a handset. | open |
 | B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
-| B5 | **you** | A **WhatsApp message template approval**, or a demo script where the founder messages first. A 9am brief to someone silent for 24 hours is blocked by Meta policy, not by our code. Approval takes days. | open, **time-sensitive** |
+| ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
@@ -44,6 +42,38 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — SCOPE CHANGE: WhatsApp is out of the MVP. Read this if you are mid-task.
+
+**What we are building is observability over reviews and social data.** Read
+everything said about a brand, cluster it, score it, alert on it. WhatsApp was
+never the product, it is one delivery channel over the top, and it was dragging
+three external accounts onto the critical path: a Meta for Developers app, a
+WhatsApp Business number, and a template approval that takes days.
+
+**The alert row in Postgres is now the source of truth, and every channel is a
+reader of it.**
+
+| Surface | MVP mechanism | External account |
+|---|---|---|
+| Alert delivery | `alerts` row, rendered live in `web/` and the DronaHQ dashboard | none |
+| Conversational agent | DronaHQ Agent on the **Chat** trigger | none |
+| `bp-detector` into DronaHQ | DronaHQ **Webhook** trigger, `api-key` header | none |
+| 9am brief | DronaHQ **Scheduler** trigger | none |
+| WhatsApp / Slack / email | post-MVP, read the same rows | Meta / Slack / Gmail |
+
+**What changes for you:**
+
+- **B4**: no change to `bp-detector`. It writes an alert row and POSTs to a
+  webhook. It never knew what a channel was and it still does not.
+- **B6**: you are now the **primary** alert surface, not a secondary one. The
+  live alert feed in `web/` is the demo. Time-to-alert is measured to your UI.
+- **B5**: build the DronaHQ agent on the **Chat** trigger. Do not configure a
+  WhatsApp trigger, do not add a Twilio connector, do not touch Meta.
+- **B1, B2, B3, B7**: nothing changes.
+
+Nothing already built is wasted. Adding WhatsApp later is a connector plus a
+phone number, because every channel reads the same row.
 
 ### 2026-09-20 — main — DronaHQ is researched, and the obvious WhatsApp block is a trap
 

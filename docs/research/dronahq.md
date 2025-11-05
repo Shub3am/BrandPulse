@@ -8,18 +8,44 @@ header is `api-key`, never `Authorization: Bearer`. Our `sk_` key belongs to the
 
 ---
 
-## 1. The blocker: inbound WhatsApp is native, outbound push is not
+## 0. Scope decision: WhatsApp is a channel, not the product
 
-The product wedge is "a crisis alert reaches the founder's WhatsApp within
-minutes". That is an **outbound, agent-initiated** message. DronaHQ's WhatsApp
-support is **inbound-first**, and the two things are built completely
+**Decided 2026-09-20.** The product is observability over reviews and social
+data: read everything said about a brand, cluster it, score it, alert on it.
+WhatsApp is one delivery channel over that, not the thing itself.
+
+So the MVP ships **without WhatsApp and without any Meta account**:
+
+| Surface | MVP mechanism | External account needed |
+|---|---|---|
+| Alert delivery | The `alerts` row in Postgres, rendered live in `web/` and in the DronaHQ dashboard | none |
+| Conversational agent | DronaHQ Agent on the **Chat** trigger | none |
+| `bp-detector` pushing into DronaHQ | DronaHQ **Webhook** trigger, `api-key` header | none |
+| 9am brief | DronaHQ **Scheduler** trigger writing to the dashboard | none |
+| WhatsApp, Slack, email | Post-MVP channels reading the same `alerts` rows | Meta / Slack / Gmail |
+
+The alert row in Postgres is the source of truth and every channel is a reader
+of it. That is why adding WhatsApp later is a connector and a phone number, not
+a rearchitecture, and it is why nothing below is wasted work.
+
+Section 1 stays because it is the verified answer for when WhatsApp does get
+switched on. Read it then, not now.
+
+---
+
+## 1. If and when WhatsApp is switched on: inbound is native, outbound push is not
+
+The wedge in its full form is "a crisis alert reaches the founder's WhatsApp
+within minutes". That is an **outbound, agent-initiated** message. DronaHQ's
+WhatsApp support is **inbound-first**, and the two things are built completely
 differently.
 
 | Direction | Mechanism | Status |
 |---|---|---|
 | Brand owner messages the agent, agent replies | WhatsApp trigger on the Agentic platform, Meta WhatsApp Business API, webhook | **Native and documented** |
 | Agent messages the brand owner unprompted | Not documented as an agent capability | **Not native** |
-| App pushes a WhatsApp message server-side | Twilio connector, `SendWhatsappTextMessage` | **Documented, third party** |
+| App pushes a WhatsApp message server-side | **REST connector to Meta's Cloud API.** One POST, same Meta app as the inbound trigger | **This is the MVP path** |
+| Same, via a third party | Twilio connector, `SendWhatsappTextMessage` | Documented, but a second vendor for no gain. **Not used** |
 | Actionflow "WhatsApp Messages" block | **Client-side deep link only** | **Does not solve this** |
 
 ### The trap: the WhatsApp actionflow block is not a sender
@@ -40,20 +66,41 @@ Source: https://docs.dronahq.com/reference/actionflow-blocks/whatsapp/
 
 ### What actually delivers the alert
 
-The Twilio connector. Configured with **Account SID** and **Auth Token**, it
-exposes these actions:
+A **DronaHQ REST connector pointed at Meta's Cloud API**. There is no Twilio and
+no second vendor. Setting up the inbound trigger already requires a Meta app, a
+WhatsApp Business number and an access token, and sending is the same app, the
+same number and the same token:
 
-| Action | Use |
-|---|---|
-| `SendWhatsappTextMessage` | **The crisis alert path** |
-| `SendWhatsappMediaMessage` | Chart or screenshot with the alert |
-| `SendMessage` | SMS fallback |
-| `SendVerify`, `SendVerifyWithConfiguration`, `VerifyCode` | OTP, unused here |
+```
+POST https://graph.facebook.com/v25.0/<PHONE_NUMBER_ID>/messages
+Authorization: Bearer <ACCESS_TOKEN>
+Content-Type: application/json
 
-The docs state plainly: *"Add `whatsapp:` before adding the sender's and
-recipient's numbers."* Both the from and the to number carry the prefix. This
-confirms the guess already written into `dronahq/CLAUDE.md`.
-Source: https://docs.dronahq.com/reference/connectors/twillio/
+{"messaging_product":"whatsapp","recipient_type":"individual",
+ "to":"+919876543210","type":"text","text":{"body":"..."}}
+```
+
+Verified against Meta's current Cloud API docs (v25.0).
+Source: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages
+
+Twilio's connector (`SendWhatsappTextMessage`, both numbers prefixed
+`whatsapp:`) does the same job and is documented at
+https://docs.dronahq.com/reference/connectors/twillio/. It is **not used**: it
+is a second account, a second credential, a second phone number and a second
+bill, wrapping the same Meta API we already have to configure. Keep it in mind
+only as an SMS fallback if WhatsApp itself is the thing that breaks.
+
+### The 24-hour window, and why the MVP does not need a template
+
+Free-form text is allowed whenever a **customer service window** is open. That
+window opens when the user messages the business and lasts 24 hours, resetting
+on each new inbound message. Outside it, only pre-approved templates send.
+
+For an MVP this is a scripting problem, not a blocker. The onboarding flow has
+the founder message the agent anyway, which opens the window. Every alert for
+the next 24 hours is free-form and needs **no template approval**. Template
+approval only becomes necessary for a genuinely cold 9am brief to a founder who
+has not spoken to the bot in a day, which is a post-MVP concern.
 
 ### Consequence for the architecture
 
