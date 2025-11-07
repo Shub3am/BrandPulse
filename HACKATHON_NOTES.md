@@ -365,6 +365,25 @@ somebody follows.
 
 ---
 
+## B7 now owns `main`. Nobody else commits there.
+
+From this commit on, the primary checkout
+`/Users/shubhamvs/Desktop/anakin-hack/brandpulse` and the `main` branch belong
+to B7 alone. Every scope change, doc fix and contract edit up to here was landed
+on `main` from that same checkout, which was safe only because B7 had not
+started. Two writers on one working tree is uncommitted work destroyed, not a
+merge conflict, because git cannot help with edits it has never seen.
+
+So: if you are B1 through B6 and you need something changed on `main`, you do
+not go and change it. You add a row to "Open blockers" naming B7, or you open
+the PR and let B7 merge it. B1 still owns `internal/models`, `001_init.sql` and
+`CONTRACTS.md`, and still lands them through a PR that B7 merges. The contracts
+rule did not move, the write path to `main` did.
+
+Merge order is B1, B2, B3, B4, B6, B5, green between each.
+
+---
+
 ## Numbers for the pitch
 
 Filled in as they are measured. **Real output only.** An estimate goes in
@@ -381,5 +400,5 @@ brackets and is replaced, never quietly promoted.
 | Cost per brand-day, warm cache | — | `go run ./eval/cost` | B3 |
 | Agent container image size | — | `docker images` after build | B5 |
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
-| Time from mention to WhatsApp | — | `demo/run_demo.sh` timing output | B4 |
+| Time from mention to alert on screen | — | `demo/run_demo.sh` timing output | B4 |
 | Nasiko PR | — | link | B5 |
