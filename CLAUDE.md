@@ -1,7 +1,7 @@
 # BrandPulse
 
 Social listening for Indian D2C brands. Nine A2A agents in Go on Nasiko, Anakin
-as the whole data layer, DronaHQ as the WhatsApp agent and the ops dashboard.
+as the whole data layer, DronaHQ as the chat agent and the ops dashboard.
 
 Start with [PLAN.md](PLAN.md), then your track brief in [docs/tracks/](docs/tracks/),
 then [docs/CONTRACTS.md](docs/CONTRACTS.md). Spec: [docs/BRIEF.md](docs/BRIEF.md).
@@ -18,7 +18,7 @@ Why Go: [docs/decisions/001-go-for-agents.md](docs/decisions/001-go-for-agents.m
 | `fixtures/` | Recorded Anakin responses and the labelled eval set. |
 | `demo/` | Seed, replay, crisis injection, the 2-minute run. [CLAUDE.md](demo/CLAUDE.md) |
 | `eval/` | Classifier accuracy and real cost per brand-day. [CLAUDE.md](eval/CLAUDE.md) |
-| `dronahq/` | Exported WhatsApp agent and dashboard app. [CLAUDE.md](dronahq/CLAUDE.md) |
+| `dronahq/` | Exported chat agent and dashboard app. [CLAUDE.md](dronahq/CLAUDE.md) |
 | `web/` | Next.js product dashboard. [CLAUDE.md](web/CLAUDE.md) |
 | `bff/` | Fastify backend-for-frontend, the dashboard's only backend. |
 | `docs/` | Contracts, research, track briefs, decisions, pricing. |
