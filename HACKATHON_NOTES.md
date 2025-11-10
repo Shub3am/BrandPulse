@@ -365,20 +365,28 @@ somebody follows.
 
 ---
 
-## B7 now owns `main`. Nobody else commits there.
+## `main` has one writer at a time, and B7 takes it last
 
-From this commit on, the primary checkout
-`/Users/shubhamvs/Desktop/anakin-hack/brandpulse` and the `main` branch belong
-to B7 alone. Every scope change, doc fix and contract edit up to here was landed
-on `main` from that same checkout, which was safe only because B7 had not
-started. Two writers on one working tree is uncommitted work destroyed, not a
-merge conflict, because git cannot help with edits it has never seen.
+B7 runs at the end, not alongside B1 through B6. Until it starts, the primary
+checkout `/Users/shubhamvs/Desktop/anakin-hack/brandpulse` and the `main` branch
+stay with the coordinating session, which is where every scope change and doc
+fix so far was landed. The moment B7 starts, that checkout is B7's alone and the
+coordinating session stops writing to it.
+
+Either way the rule is one writer. Two writers on one working tree is
+uncommitted work destroyed, not a merge conflict, because git cannot help with
+edits it has never seen.
+
+**Consequence of B7 starting late, stated plainly:** `.github/workflows/` is
+empty and stays empty until then, so nothing is checking that B1 through B6
+still build together. Four branches have already diverged. The first time
+anyone finds out is at merge time, all at once.
 
 So: if you are B1 through B6 and you need something changed on `main`, you do
-not go and change it. You add a row to "Open blockers" naming B7, or you open
-the PR and let B7 merge it. B1 still owns `internal/models`, `001_init.sql` and
-`CONTRACTS.md`, and still lands them through a PR that B7 merges. The contracts
-rule did not move, the write path to `main` did.
+not go and change it. You add a row to "Open blockers", or you open the PR.
+B1 still owns `internal/models`, `001_init.sql` and `CONTRACTS.md` and still
+lands them through a PR. The contracts rule did not move, only the question of
+who holds the write path to `main` at a given hour.
 
 Merge order is B1, B2, B3, B4, B6, B5, green between each.
 
