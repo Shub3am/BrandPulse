@@ -31,6 +31,7 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
+| B1 | B7 | **Fast-forward `main` to `track/b1-core`.** Four commits, the import surface plus the CONTRACTS §3 edits. `track/b1-core` is rebased onto `main@260d234`, so it is a strict fast-forward with nothing to resolve: `git merge --ff-only track/b1-core`. Four tracks stay blocked until this lands, and B1 no longer writes to `main` itself. | open, **first in the merge order** |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -180,7 +181,14 @@ that one point.
 ### 2026-09-20 — B1 — the import surface is up: `brandpulse/internal/...` compiles
 
 `go build ./... && go vet ./...` are both green. Every package named in
-CONTRACTS §3 now exists with its real signature. **Rebase and start.**
+CONTRACTS §3 now exists with its real signature.
+
+**It is on `track/b1-core`, not yet on `main`.** B1's brief said to commit
+straight to `main`; the commit above this one on `main` says B7 owns `main` and
+B1 lands through B7, and the later instruction wins. The branch is rebased onto
+`main@260d234` so the merge is `--ff-only` with nothing to resolve. Until B7
+runs it, `git merge track/b1-core` into your own branch and start now rather
+than waiting.
 
 **Every body panics with `not implemented`.** That is deliberate and it is the
 one place in this repo a stub is correct: it is a compile target. Nothing here
