@@ -20,17 +20,18 @@ Newest entry at the bottom of its section.
 
 | Raised by | Blocked on | What I need | Status |
 |---|---|---|---|
-| B2, B3, B4 | B1 | the `internal/` import surface as compiling signatures, on `main` | open, **B1 Task 1, twenty minutes** |
+| ~~B2, B3, B4~~ | ~~B1~~ | ~~the `internal/` import surface as compiling signatures~~ | **closed 2026-09-20**, B1 Task 1, see "the import surface is up" below |
 | B2, B3, B4 | B1 | `internal/anakin` with working `replay` mode | open |
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
-| B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
+| ~~B6~~ | ~~B1~~ | ~~`internal/models/agentio.go`, so the BFF's envelope shapes are unverifiable~~ | **closed 2026-09-20**, the file exists and compiles |
 | B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
 | B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
+| B1 | B7 | **Fast-forward `main` to `track/b1-core`.** Four commits, the import surface plus the CONTRACTS §3 edits. `track/b1-core` is rebased onto `main@260d234`, so it is a strict fast-forward with nothing to resolve: `git merge --ff-only track/b1-core`. Four tracks stay blocked until this lands, and B1 no longer writes to `main` itself. | open, **first in the merge order** |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -176,6 +177,70 @@ Amended 2026-09-20: the original entry put this behind a
 ships, because an alternate branch with no endpoint behind it is a branch
 nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
 that one point.
+
+### 2026-09-20 — B1 — the import surface is up: `brandpulse/internal/...` compiles
+
+`go build ./... && go vet ./...` are both green. Every package named in
+CONTRACTS §3 now exists with its real signature.
+
+**It is on `track/b1-core`, not yet on `main`.** B1's brief said to commit
+straight to `main`; the commit above this one on `main` says B7 owns `main` and
+B1 lands through B7, and the later instruction wins. The branch is rebased onto
+`main@260d234` so the merge is `--ff-only` with nothing to resolve. Until B7
+runs it, `git merge track/b1-core` into your own branch and start now rather
+than waiting.
+
+**Every body panics with `not implemented`.** That is deliberate and it is the
+one place in this repo a stub is correct: it is a compile target. Nothing here
+works yet, and a stub that returned a plausible zero value would let you build
+on an empty slice and discover it on stage. If you call one you will get a
+panic naming the package, which is the answer you want today.
+
+Two exceptions, because they could not honestly panic:
+
+- **`internal/prompts` is fully implemented.** `Guardrails` is a package-level
+  `var`, and a `var` has no body to panic in. Leaving it nil would have been a
+  silent empty guardrail list, which is worse than anything else on this page.
+  `prompts.Load(name)` reads the embedded FS and is real. B1 Task 9 is
+  therefore already done; adding your agent's prompt `.md` to that package is
+  yours, and it is a recompile, not a config reload.
+- **`models.NewAlert` and `models.NewDailyBrief` are real.** They are pure
+  schema like the rest of `models`, and a constructor that panics is not a
+  compile target, it is a landmine.
+
+**What changed in CONTRACTS §3, land it in your head before you write a
+`main()`:**
+
+| Change | Why |
+|---|---|
+| `a2a.Serve[In, Out any](card, h)` and `a2a.Handler[In, Out]` are now generic | §4 gives every agent `Handle(ctx, <Name>Input) (<Output>, error)`. Adapting that to one SDK executor interface needs type parameters. Inference makes your call site `a2a.Serve(card, handler)` unchanged — you write no type argument. |
+| `a2a.LoadCard(path) (Card, error)` added | You need a `Card` from somewhere and you must not build one by hand. It also rejects `protocolVersion != "1.0"` at load rather than at deploy. |
+| `llm.Opt` now has fields: `{Model string; MaxTokens int}` | §3 named the type without them. Both are optional; a zero `Model` defers to the router's per-agent `nasiko llm-config`. |
+| `anakin.NoNetwork() *http.Client` added | The no-network guarantee is a package, not a CI setting, because Go has no `pytest-socket`. Inject it in every test. Still a stub until B1 Task 12. |
+| `models.NewAlert` / `NewDailyBrief` signatures printed | Both take their timestamps as arguments and read no clock, same reason `DetectInput` carries `Now`. |
+
+**`anakin.NewHTTPClient` is the `cfg Config` form from §3, not the positional
+form the B1 brief sketches.** §3 is what five tracks compile against, so §3
+wins. `Config` carries everything the positional version did plus `MaxCredits`,
+which is the ceiling the collector binds per call.
+
+**Two corrections the B1 brief predicted that turned out not to be needed:**
+CONTRACTS §0 already says `redact.PII`, not `RedactPII`, and §3's import block
+already excludes `internal/cluster` and already says in prose that it is B3's.
+Both docs are correct as written; nothing to fix. `internal/cluster` does not
+exist and B1 will not create it — B3 builds it as their Task 1.
+
+**Answer to Open question 1, partially.** `a2a-go/v2` v2.5.0 resolves and the
+module path in CONTRACTS is right. Two findings for whoever wires an agent:
+the card type is **`a2a.AgentCard` in package
+`github.com/a2aproject/a2a-go/v2/a2a`**, not `a2asrv.AgentCard` as the B1 brief
+says, and that package name collides with our own `internal/a2a`, so it needs
+an import alias. The server side is `a2asrv.NewHandler` + `NewJSONRPCHandler`
+registered on a stdlib mux, and the well-known card path is
+`a2asrv.WellKnownAgentCardPath`. **The SDK is not yet imported anywhere**:
+`internal/a2a` is stdlib-only for now so this commit could land in minutes, and
+pulling in its grpc and protobuf dependencies is B1 Task 11. `a2a.JSONArtifact`
+still has no verified SDK helper behind it; question 1 stays open.
 
 ---
 
