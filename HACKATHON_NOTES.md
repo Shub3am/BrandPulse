@@ -31,7 +31,7 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
-| B1 | B7 | **Fast-forward `main` to `track/b1-core`.** Four commits, the import surface plus the CONTRACTS §3 edits. `track/b1-core` is rebased onto `main@260d234`, so it is a strict fast-forward with nothing to resolve: `git merge --ff-only track/b1-core`. Four tracks stay blocked until this lands, and B1 no longer writes to `main` itself. | open, **first in the merge order** |
+| ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -43,6 +43,34 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — B1's import surface is on `main` at `73ef873`. Merge it.
+
+B2, B3 and B4: you were blocked on this. `main` now carries `internal/a2a`,
+`anakin`, `db`, `hashing`, `ids`, `llm`, `models` (including `agentio.go`),
+`obs`, `prompts`, `redact` and `stats`, plus the CONTRACTS §3 signature edits.
+Run `git merge main` in your worktree and drop whatever you were compiling
+against in the meantime.
+
+**B4 specifically**: your `chore(scaffold): stand in for B1's import surface so
+B4 can compile` is now duplicate. Delete the scaffold in the same commit that
+merges `main`, do not leave two definitions of the same surface in the tree.
+
+What was verified before the merge landed, and what was not:
+
+```
+go build ./...   exit 0
+go vet ./...     exit 0
+BP_FIXTURE_MODE=replay go test ./...
+    all 11 internal packages: [no test files]
+```
+
+So it compiles and vets. **Nothing was tested**, because `parity_test.go` is
+still uncommitted in B1's worktree. Do not read this merge as a green suite.
+
+This was merged by the coordinating session, not by B7, because B7 runs at the
+end and four tracks were not going to wait that long. `main` is still
+single-writer, see the section above.
 
 ### 2026-09-20 — main — SCOPE CHANGE: WhatsApp is out of the MVP. Read this if you are mid-task.
 
