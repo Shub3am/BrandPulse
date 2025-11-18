@@ -41,7 +41,7 @@ directly to the typed JSON artifacts.
   Meta's Cloud API, and the WhatsApp actionflow block is a client-side deep link
   that cannot deliver anything. Do not reach for that block.
 - **Agent export is unverified.** App export is documented; nothing documents
-  exporting an Agent. If it does not exist, `whatsapp-agent.json` becomes a
+  exporting an Agent. If it does not exist, `chat-agent.json` becomes a
   runbook and screenshots, and this table changes with it. B5 checks the console
   on day one.
 - **Guardrails go in the agent's "Rules & Guardrails" instructions**: never
@@ -53,4 +53,4 @@ directly to the typed JSON artifacts.
 
 ## Who calls this
 
-Brand owners, over WhatsApp. Analysts, in a browser. Judges, at the demo.
+Brand owners, in the DronaHQ chat. Analysts, in a browser. Judges, at the demo.
