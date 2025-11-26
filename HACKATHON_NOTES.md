@@ -177,6 +177,59 @@ ships, because an alternate branch with no endpoint behind it is a branch
 nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
 that one point.
 
+### 2026-09-20 — B5 — Nasiko's deploy path read from source: no proxy env var, no OTel endpoint, and `nasiko upload` is as fatal as the dashboard
+
+There is still no Nasiko credential, so instead of waiting I cloned
+`Nasiko-Labs/nasiko`, built the CLI from source and read the deploy path.
+Everything below is **source-read at commit `58cfe60`**, not confirmed against a
+live cluster. Full working in [docs/DEPLOY-NOTES.md](docs/DEPLOY-NOTES.md).
+
+**Answers open question #7, and B1 has nothing to change.** Nothing injects
+`OTEL_EXPORTER_OTLP_ENDPOINT` into a deployed container, *in any language*.
+`ServerState::agent_env` (`server/src/state.rs:462-472`) builds the entire
+environment and it is: agent secrets, plus `OPENAI_API_KEY` /
+`OPENAI_BASE_URL` / `OPENAI_MODEL`, plus `PORT` defaulted to 8000. That is the
+list. Python's auto-instrumentation is patched in via `PYTHONSTARTUP`
+(`upload.rs:858-920`) and then reads the same unset variable, so Python is no
+better off than we are. `internal/obs` stays exactly as the ADR describes:
+self-instrument, read `OTEL_EXPORTER_OTLP_ENDPOINT`. **B5 supplies it** as a
+vault-wide `nasiko secrets set`. The collector's in-cluster address still needs
+a live cluster.
+
+**Answers open question #2, negatively, and B1 needs to know before writing
+`a2a.Call`.** There is no `NASIKO_PROXY_URL`. `research/nasiko.md` §7 guessed
+one; it does not exist. The server is the sole ingress, peers are reached at
+`POST /api/agents/{agent_id}`, and the only agent-facing credential is
+`x-nasiko-agent-token`, a delegation JWT the server mints and sends **inbound**
+(`server/src/router/a2a_dispatch.rs:796-811`). All nine Nasiko-shipped example
+agents were grepped: **none of them calls another agent**, so there is no
+first-party example to copy.
+
+So `a2a.Call` needs two things that do not arrive for free: a base URL, which
+we set ourselves as a vault-wide secret (suggest `NASIKO_API_URL`, our name not
+Nasiko's), and a credential, for which the only available shape is replaying
+the inbound `x-nasiko-agent-token` off the request the caller is already
+serving. That is a per-request value, so **it has to thread through
+`a2a.Call`'s `ctx`, not sit in a package-level client**. B1: design for that
+now, it is cheap today and a rewrite later. The replay itself is my inference
+from how the server mints and consumes the token, not something the docs state,
+and it gets confirmed on the first live two-agent call.
+
+**Correction to the decisions log.** The Go ADR entry below says
+`validate_agent_zip` guards "only the dashboard zip-upload path". It guards the
+server route `/api/agents/upload`, and the **CLI's `nasiko upload` posts to
+exactly that route** (`cli/src/commands/upload.rs:17`). So `nasiko upload` is
+barred for Go agents too, not just the dashboard. `nasiko deploy` is unaffected:
+it branches on `AgentCard.json`, builds locally and pushes to the OCI registry
+(`cli/src/commands/deploy.rs:26-63`), and never touches the validator. The rule
+is one word wider than we wrote it: **deploy, never upload.**
+
+**Two things worth having before you hit them.** `version` in `AgentCard.json`
+must be `x.y.z` or the server rejects it with no default applied
+(`upload.rs:475-485`), so `"1.0"` fails and `"1.0.0"` passes. And `nasiko
+validate` already accepts Go: it looks for `src/`, `cmd/` **or `main.go`**, and
+a miss is a warning, not an error (`validate.rs:37-46`).
+
 ---
 
 ## Open questions
@@ -187,12 +240,13 @@ The things nobody has verified yet. Claim one by putting your track in the
 | # | Question | Owner | Why it matters |
 |---|---|---|---|
 | 1 | Which `a2a-go/v2` helper emits a **JSON** artifact? | B1, Task 1 | All nine agents need it. Lands as `a2a.JSONArtifact`. |
-| 2 | How is a peer agent addressed through the Nasiko proxy? The env var name is unverified. | B5, Task 1 | Lands as `a2a.Call`. No agent writes a peer URL directly. |
-| 7 | Do OTel traces from a self-instrumented Go container actually reach `nasiko observe`? | B5, Task 2 | If not, nine agents are invisible in the control plane. Deploy blocker, not polish. |
+| ~~2~~ | ~~How is a peer agent addressed through the Nasiko proxy?~~ | ~~B5, Task 1~~ | **answered 2026-09-20**, source-read. No proxy env var exists. See Resolved unknowns. B1 reads it before writing `a2a.Call`. |
+| ~~7~~ | ~~Do OTel traces from a self-instrumented Go container reach `nasiko observe`?~~ | ~~B5, Task 2~~ | **half-answered 2026-09-20**, source-read. Nothing injects the endpoint, B5 sets it. The collector address still needs a live cluster. |
 | 3 | The literal field names in Wire responses per action. | B2, Task 1 | A guessed field name is an empty dashboard on stage. |
 | 4 | Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`? | B2, Task 2 | Decides six sources or seven. |
-| 5 | Does DronaHQ's WhatsApp trigger send outbound, or do we need the Twilio connector? | B5, Task 7 | The 9am brief depends on it. Meta's 24-hour window may force a template. |
+| ~~5~~ | ~~Does DronaHQ's WhatsApp trigger send outbound?~~ | ~~B5, Task 7~~ | **moot 2026-09-20**, WhatsApp is out of the MVP. The verified answer is kept in `research/dronahq.md` §1 for whoever switches it on later. |
 | 6 | Does DronaHQ's Charts control expose the Plotly `hole` config for a donut? | B5, Task 6 | Cosmetic. Ship a pie if not. |
+| 8 | What is the OTLP collector's address from inside an agent container, and does a Go span show up in `nasiko observe`? | B5, Task 2 | The remainder of #7. Needs a live cluster, so it needs the Nasiko credential first. |
 
 ---
 
@@ -238,6 +292,11 @@ A third finding that cost nothing but would have cost an hour live: Nasiko's
 `validate_agent_zip` requires a `main.py`, but **only on the dashboard
 zip-upload path**. `nasiko deploy` from the CLI does not run that gate. Never
 use the dashboard uploader for these agents.
+
+Amended 2026-09-20 by B5, from source: that gate guards the server route
+`/api/agents/upload`, and the CLI's `nasiko upload` posts to that same route.
+So it bars Go agents from the CLI too, not only from the dashboard. `nasiko
+deploy` is still unaffected. **Deploy, never upload.**
 
 ### 2026-09-20 — main — zero values replace pydantic defaults, and Validate is the guard
 

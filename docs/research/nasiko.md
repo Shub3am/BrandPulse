@@ -200,16 +200,33 @@ hop is proxied by `nasiko-server`:
   We do **not** use this; our orchestration is explicit, which is the point of
   a deterministic pipeline.
 
-**UNVERIFIED:** the exact env var injected into agent containers that carries
-the proxy base URL and the caller's trust credential. No first-party Python
-example calls *through* the proxy — the one client example in the repo
-(`agents/langgraph/src/test_client.py`) hits an agent directly on localhost.
+**ANSWERED 2026-09-20 by B5, from source at commit `58cfe60`: there is no such
+env var.** This section previously guessed at a `NASIKO_PROXY_URL`. It does not
+exist and never did.
 
-**Mitigation:** `bp_core.a2a.call_agent(agent_id, payload)` is the single place
-that knows how to address a peer. It reads `NASIKO_PROXY_URL` (falling back to
-a compose-local `http://bp-{name}:8000/` map) so local dev works today and the
-Nasiko path is a one-file change once B5 reads it off a live deploy. Nobody
-else writes an agent URL anywhere.
+`ServerState::agent_env` (`server/src/state.rs:462-472`) is the one function
+that builds a deployed container's environment, and it injects exactly: the
+agent's own secrets, `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`, and
+`PORT` defaulted to 8000. No base URL, no trust credential. All nine
+Nasiko-shipped example agents were grepped and **none of them calls another
+agent**, which is why no example exists to copy.
+
+The only agent-facing credential is `x-nasiko-agent-token`, a delegation JWT
+the server mints and sends **inbound** to the agent
+(`server/src/router/a2a_dispatch.rs:796-811`), minted only when the server has
+`JWT_SECRET` and best-effort otherwise.
+
+**So `a2a.Call` (CONTRACTS §3) supplies both halves itself:**
+
+1. **Base URL.** We set one, as a vault-wide secret. Suggest `NASIKO_API_URL`.
+   That name is ours, not Nasiko's, so do not go looking for it in their docs.
+2. **Credential.** Replay the inbound `x-nasiko-agent-token` off the request the
+   caller is already serving. That is a per-request value, so it threads through
+   `a2a.Call`'s `ctx`. It cannot live in a package-level client.
+
+Point 2 is inference from how the server mints and consumes the token, not a
+documented contract, and it is confirmed on the first live two-agent call.
+Detail in [DEPLOY-NOTES.md](../DEPLOY-NOTES.md) Finding 5.
 
 Client side uses `A2ACardResolver` + `A2AClient` from `a2a.client`.
 
@@ -256,8 +273,12 @@ the product repo and explaining the topology.
 injection behaviour, stock-OpenAI-SDK usage, CLI commands, contributing flow.
 
 **Shaky, verify on a live cluster before the demo:** the JSON-artifact helper
-name in `a2a-sdk` 1.1.0; the agent-to-agent proxy env var; whether
-`/v1/embeddings` is proxied at all; whether PR CI exists.
+name in `a2a-sdk` 1.1.0; whether `/v1/embeddings` is proxied at all; whether PR
+CI exists; the OTLP collector address reachable from inside a container;
+whether replaying `x-nasiko-agent-token` authenticates a peer call (§7).
+
+The agent-to-agent proxy env var came off this list on 2026-09-20 by being
+answered, not verified: it does not exist. See §7.
 
 Open these: the [repo](https://github.com/Nasiko-Labs/nasiko),
 [A2A_PROTOCOL.md](https://github.com/Nasiko-Labs/nasiko/blob/main/docs/A2A_PROTOCOL.md),
