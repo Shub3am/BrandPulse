@@ -7,8 +7,9 @@
 
 **Goal:** Ship a live, deployed social-listening product for Indian D2C brands —
 continuous public-web monitoring, topic clustering, sentiment, deterministic
-crisis detection, WhatsApp brief, live dashboard — running as nine A2A agents on
-Nasiko, with Anakin as the entire data layer and DronaHQ as the two front ends.
+crisis detection, a conversational daily brief, live dashboard — running as nine
+A2A agents on Nasiko, with Anakin as the entire data layer and DronaHQ as the two
+front ends.
 
 **Architecture:** Nine single-purpose A2A agents in containers on Nasiko. One
 orchestrator fans out to source collectors under a flow guard, then runs a
@@ -92,13 +93,13 @@ Copied from the brief. Every task inherits these.
 | `agents/bp-sov/` | Share-of-voice counting. | B3 |
 | `agents/bp-detector/` | Five deterministic alert rules. | B4 |
 | `agents/bp-responder/` | Guardrailed reply drafting. | B4 |
-| `agents/bp-briefer/` | Daily/weekly brief, markdown + WhatsApp short. | B4 |
+| `agents/bp-briefer/` | Daily/weekly brief, markdown + a short chat form. | B4 |
 | `agents/bp-orchestrator/` | Pipeline, idempotency, flow-guard-aware fan-out. | B4 |
 | `db/migrations/*.sql` | Schema. Additive only after Phase 1. | B1 |
 | `fixtures/` | Recorded Anakin responses + 300 labelled mentions. | B2 records, B3 labels |
 | `demo/` | Seed, replay script, crisis injection. | B4 |
 | `eval/` | Classifier accuracy + real cost per brand-day. | B3 |
-| `dronahq/` | Exported WhatsApp agent + dashboard app, screenshots. | B5 |
+| `dronahq/` | Exported chat agent + dashboard app, screenshots. | B5 |
 | `web/`, `bff/` | Next.js product dashboard and the Fastify BFF it calls. | B6 |
 | `docs/` | Architecture, setup, pricing, contracts, track briefs. | B5 (B1 owns CONTRACTS) |
 | `docker-compose.yml` | Postgres 16 on host port 5433. Frozen with the contracts. | B7 |
@@ -172,7 +173,7 @@ accuracy on the labelled set and a real ₹/brand-day figure.
 ### Phase 4 — Deploy and front ends (B5 + B6 in parallel, with B1 on call)
 
 B5: nine `AgentCard.json` + `Dockerfile` + `nasiko deploy`. Flow guards
-configured. DronaHQ WhatsApp agent and ops dashboard built against the deployed
+configured. DronaHQ chat agent and ops dashboard built against the deployed
 URLs. Copy `agents/bp-*` into the Nasiko fork and open the PR.
 
 B6: the Fastify BFF that fronts `bp-orchestrator` and Postgres, then swaps
@@ -180,7 +181,7 @@ B6: the Fastify BFF that fronts `bp-orchestrator` and Postgres, then swaps
 dashboard already renders against demo data; only the BFF needs Phase 3.
 
 **Gate:** all nine agents respond to a real A2A call at their deployed URLs;
-the DronaHQ dashboard renders a live run; the WhatsApp agent delivers a brief;
+the DronaHQ dashboard renders a live run; the chat agent delivers a brief;
 `web/` renders a real run with no `demoData` import left in `app/page.tsx`.
 
 ### Phase 5 — Demo hardening (B7 leads, all tracks on call)
@@ -260,7 +261,7 @@ The things most likely to sink this, and what we do about each.
 | Live demo call fails on stage (wifi, rate limit) | Demo replays fixtures by default; the live call is one clearly-labelled extra step that can be skipped without breaking the flow. Fallback video recorded in Phase 5. |
 | Parallel tracks drift on interfaces | `docs/CONTRACTS.md` is frozen at Phase 0. Changes go through B1 on `main`, never inside a worktree. In Go the drift is also a compile error, which is most of why Go was chosen. |
 | Five tracks blocked waiting for B1 to finish `internal/` | B1's first commit is the full import surface as signatures with `panic("not implemented")` bodies, on `main` inside twenty minutes. Everyone compiles against it immediately. |
-| DronaHQ cannot do WhatsApp natively | It has a native WhatsApp trigger over the Meta Business API. Outbound send mechanics are unverified and B5 confirms them on day one; the fallback is the Twilio connector as a REST connector. The demo needs message delivery, not a specific vendor. |
+| DronaHQ cannot deliver the brief | **Retired 2026-09-20.** WhatsApp is out of the MVP, so no external messaging account is on the critical path. The brief lands in the DronaHQ chat agent on the Chat trigger and `bp-detector` pushes alerts in on the Webhook trigger. If WhatsApp is switched on later, `docs/research/dronahq.md` §1 holds the verified route. |
 | Clustering has no embeddings endpoint to use | **Already happened.** The Nasiko router lists chat models only, so bp-clusterer clusters on local TF-IDF. Deterministic, free, and runs in CI. No `BP_VECTORISER` switch: one implementation ships, and an unused branch is a branch nobody tests. |
 
 ---
