@@ -7,7 +7,8 @@ Running log of what Nasiko actually does, written as it is discovered. Source
 citations are file:line in `Nasiko-Labs/nasiko` at commit
 `58cfe600559c67d58100ec2856d7b29838e2859f` (2026-09-14), read from a local
 clone. Anything marked **source-read** has not yet been confirmed against a
-live cluster, because there is no Nasiko credential yet.
+live cluster, because there is no Nasiko credential yet. Findings 7 and 8 are
+different: those were built and run locally, and the output is pasted.
 
 ---
 
@@ -22,7 +23,9 @@ Tasks 1, 2 and 3 cannot complete today. Two independent blockers:
    no `internal/obs`, no `internal/models/agentio.go`.
 
 What follows was read from Nasiko's source instead, so that the moment both
-blockers clear the deploy is mechanical rather than exploratory.
+blockers clear the deploy is mechanical rather than exploratory. Everything up
+to and including `nasiko validate` has since been run for real against a
+template agent, which is as far as the toolchain goes without a cluster.
 
 ## Toolchain
 
@@ -216,6 +219,76 @@ configuration, not a deploy flag.
 (`guard.rs:67-98`). **Confirm Redis is up before blaming an agent.** A fleet
 where every call is rejected is a Redis problem, not nine bugs.
 
+## Finding 7: an AgentCard marshalled from the Go struct fails `nasiko validate`
+
+This one would have cost the first deploy, and it is the first thing on this
+page that is **not** source-read: it was run.
+
+`a2a-go` v2.5.0 marshals `a2a.AgentCard` to the A2A **1.0** shape, which moves
+`url`, `protocolVersion` and `preferredTransport` into a
+`supportedInterfaces[]` array. Nasiko's `validate.rs` requires all three at the
+**top level**. So the obvious move, generate the card from the struct, produces
+a card missing three of the eight required fields.
+
+Confirmed in both directions on a Go agent directory. With the union card:
+
+```
+$ nasiko validate
+Validating agent at .../agents/bp-template
+
+  ✓ Dockerfile
+  ✓ AgentCard.json
+  ✓ source directory
+  ✓ AgentCard.json fields
+  ✓ skills (1 defined)
+  ! docker-compose.yml — missing (recommended)
+  ! .env.example — missing (recommended)
+
+✓ Valid (2 warning(s))
+```
+
+With exactly those three fields deleted, which is what the struct gives you:
+
+```
+  ✗ AgentCard.json — missing fields: url, protocolVersion, preferredTransport
+
+✗ 1 error(s), 2 warning(s)
+Error: validation failed
+```
+
+**The fix is one file, not two.** `validate.rs` checks presence and
+`encoding/json` ignores unknown keys, so a card carrying both shapes satisfies
+Nasiko and unmarshals into `a2a.AgentCard` with `SupportedInterfaces` populated.
+Template in `research/nasiko.md` §2.
+
+## Finding 8: the Go image is 14.6MB, measured
+
+The §4 Dockerfile template was Python until today. It is Go now, and it was
+built and run before being written down: `golang:1.27.1` build stage with
+`CGO_ENABLED=0`, `gcr.io/distroless/static:nonroot` run stage, repo root as
+build context.
+
+```
+$ docker images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep bp-template
+bp-template:2.0.0	14.6MB
+
+$ docker run -d -e PORT=8000 -p 18124:8000 bp-template:2.0.0
+$ curl -s http://127.0.0.1:18124/health
+{"ok":true}
+
+$ docker inspect bp-template:2.0.0 --format 'User={{.Config.User}} Entrypoint={{.Config.Entrypoint}}'
+User=nonroot:nonroot Entrypoint=[/agent]
+```
+
+That is a template agent importing `brandpulse/internal/models` and
+`github.com/a2aproject/a2a-go/v2/a2a`. A real agent adds a database driver and
+an OTel exporter, so treat 14.6MB as the floor, not the number for nine.
+
+**`static:nonroot`, not `scratch`.** Anakin and the LLM router are both HTTPS
+and scratch ships no CA bundle, so every outbound call would fail with `x509:
+certificate signed by unknown authority` after a clean build and a green test
+suite.
+
 ---
 
 ## Open, needs a live cluster
@@ -223,5 +296,7 @@ where every call is rejected is a Redis problem, not nine bugs.
 - The OTLP collector address reachable from inside an agent container.
 - Whether `x-nasiko-agent-token` replay actually authenticates a peer call.
 - Whether `nasiko observe` shows a span from a self-instrumented Go container.
-- The real `bp-sov` image size. No estimate goes in this file; the brief wants
-  pasted `docker images` output and it will get pasted output.
+- `nasiko push`, `nasiko deploy`, `nasiko secrets`, `nasiko ps`, `nasiko logs`.
+  Everything up to and including `nasiko validate` is now verified locally;
+  nothing past it is.
+- The real `bp-sov` image size. Finding 8 measures a template, not the agent.

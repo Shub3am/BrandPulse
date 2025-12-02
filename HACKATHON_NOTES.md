@@ -230,6 +230,66 @@ must be `x.y.z` or the server rejects it with no default applied
 validate` already accepts Go: it looks for `src/`, `cmd/` **or `main.go`**, and
 a miss is a warning, not an error (`validate.rs:37-46`).
 
+### 2026-09-20 — B5 — open question #1 answered, and a card that marshals from the Go struct will not deploy
+
+The shared templates in `research/nasiko.md` §2, §3 and §4 were still Python.
+They are Go now, and every line of them was built and run before being written
+down. **B1 reads §3 before writing `internal/a2a`. Every agent track reads §2
+and §4 before writing a card or a Dockerfile.**
+
+**#1, the JSON artifact helper: there is no one-call helper.** It is
+`a2a.NewDataPart(data any) *a2a.Part` plus
+`a2a.NewArtifactEvent(infoProvider, parts...)`. `NewDataPart` leaves
+`MediaType` empty and `NewArtifactEvent` leaves `Artifact.Name` empty, so
+CONTRACTS' "one `application/json` artifact named for its struct" needs both
+assigned by hand. That is four lines, easy to get three-quarters right, times
+nine agents, which is precisely the case for `a2a.JSONArtifact` existing.
+`*a2asrv.ExecutorContext` implements `a2a.TaskInfoProvider`, so it passes
+straight in. Marshalled wire output is pasted in §3.
+
+**For anyone writing a binding, including DronaHQ and the BFF:** the payload
+sits at `artifact.parts[0].data`, and v2 has **no `kind` discriminator** on the
+part. A binding looking for `"kind": "data"` finds nothing.
+
+**The v2 executor is an iterator, not an event queue.**
+`Execute(ctx, *ExecutorContext) iter.Seq2[a2a.Event, error]`. There is no
+`enqueue_event`. Anyone porting from a Python example or from v1 loses an
+afternoon here.
+
+**The one that would have failed a deploy.** `a2a-go` v2.5.0 marshals
+`a2a.AgentCard` to the A2A 1.0 shape, which moves `url`, `protocolVersion` and
+`preferredTransport` into a `supportedInterfaces[]` array. Nasiko's
+`validate.rs` requires all three at the top level. So **generating
+`AgentCard.json` from the Go struct produces a card that fails `nasiko
+validate`**, and I confirmed that by deleting exactly those three fields and
+watching it fail. One file satisfies both: write the union, since `validate.rs`
+only checks presence and `encoding/json` ignores unknown keys. Template in §2,
+and it passes:
+
+```
+$ nasiko validate
+  ✓ Dockerfile
+  ✓ AgentCard.json
+  ✓ source directory
+  ✓ AgentCard.json fields
+  ✓ skills (1 defined)
+✓ Valid (2 warning(s))
+```
+
+The two warnings are `docker-compose.yml` and `.env.example` missing **from the
+agent directory**. Ours are at the repo root. Ignore them, do not "fix" them.
+
+**The Dockerfile is verified too, and gives us a pitch number.** Multi-stage,
+`golang:1.27.1` to build with `CGO_ENABLED=0`, then
+`gcr.io/distroless/static:nonroot`. Built against this repo's `go.mod` and
+`internal/models/` with `a2a-go` v2.5.0 pulled in: **14.6MB**, runs as
+`nonroot`, serves. Not scratch: Anakin and the LLM router are HTTPS and scratch
+has no CA bundle. Build context is the repo root or `COPY internal/` cannot
+reach it.
+
+Still unverified and still needing the cluster: `nasiko push`, `nasiko deploy`
+and everything after them.
+
 ---
 
 ## Open questions
@@ -239,7 +299,7 @@ The things nobody has verified yet. Claim one by putting your track in the
 
 | # | Question | Owner | Why it matters |
 |---|---|---|---|
-| 1 | Which `a2a-go/v2` helper emits a **JSON** artifact? | B1, Task 1 | All nine agents need it. Lands as `a2a.JSONArtifact`. |
+| ~~1~~ | ~~Which `a2a-go/v2` helper emits a **JSON** artifact?~~ | ~~B1, Task 1~~ | **answered 2026-09-20**, compiled and marshalled. None does it in one call: `NewDataPart` + `NewArtifactEvent`, then set `MediaType` and `Artifact.Name` by hand. `research/nasiko.md` §3. |
 | ~~2~~ | ~~How is a peer agent addressed through the Nasiko proxy?~~ | ~~B5, Task 1~~ | **answered 2026-09-20**, source-read. No proxy env var exists. See Resolved unknowns. B1 reads it before writing `a2a.Call`. |
 | ~~7~~ | ~~Do OTel traces from a self-instrumented Go container reach `nasiko observe`?~~ | ~~B5, Task 2~~ | **half-answered 2026-09-20**, source-read. Nothing injects the endpoint, B5 sets it. The collector address still needs a live cluster. |
 | 3 | The literal field names in Wire responses per action. | B2, Task 1 | A guessed field name is an empty dashboard on stage. |
