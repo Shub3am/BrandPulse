@@ -48,10 +48,16 @@ Per-agent input and output signatures are frozen in
   [internal/models/CLAUDE.md](../internal/models/CLAUDE.md).
 - **Nasiko auto-injects OpenTelemetry for Python containers only.** Go agents
   self-instrument: `obs.Setup(serviceName)` in `main()`, deferred shutdown.
-  Skip it and the agent is invisible to `nasiko observe`.
-- **Never deploy through the Nasiko dashboard zip uploader.** Its
-  `validate_agent_zip` check requires a `main.py` and will reject a Go agent.
-  `nasiko deploy` from the CLI does not run that gate. Use the CLI.
+  Skip it and the agent is invisible to `nasiko observe`. Note that
+  **`OTEL_EXPORTER_OTLP_ENDPOINT` is injected for nobody**, Python included, so
+  B5 sets it as a vault-wide secret at deploy time. Nothing changes in this
+  directory because of that.
+- **Never deploy through the Nasiko dashboard zip uploader, and never through
+  `nasiko upload` either.** Both post to `/api/agents/upload`, whose
+  `validate_agent_zip` check requires a `main.py` and rejects a Go agent with a
+  `400`. `nasiko deploy` does not go near that route: it branches on
+  `AgentCard.json`, builds locally and pushes the image. **Deploy, never
+  upload.** One letter apart, one fatal.
 - **`AgentCard.json` uses `protocolVersion: "1.0"`.** The Nasiko example ships
   `"0.2.9"` and a real cluster rejects it with `-32009 VersionNotSupported`.
 - **`skills` is never empty** or the agent is invisible to routing.

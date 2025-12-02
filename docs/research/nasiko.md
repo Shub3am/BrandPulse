@@ -52,76 +52,294 @@ a warning, not an error — but an agent with no skills is invisible to the
 orchestrator's routing, so every BrandPulse agent declares at least one.
 
 Nasiko-specific non-spec fields seen in the example and worth setting:
-`agentFramework` / `framework` (`"starlette"`), `llm_provider` (`null` for our
-five deterministic agents), `tags`, `transport` (`"http"`).
+`agentFramework` / `framework` (the example says `"starlette"`; ours is
+`"a2a-go"`), `llm_provider` (`null` for our five deterministic agents), `tags`,
+`transport` (`"http"`). None of these are validated, so a wrong value is
+cosmetic, not fatal.
 
 `nasiko deploy` uses `name` + `version` as the image tag and rewrites `version`
 back into the file (`sync_card_version`). Bump `version` per deploy or accept
 the CLI's rewrite.
 
 Discovery path: `/.well-known/agent-card.json` (also accepts legacy
-`/.well-known/agent.json`). The `a2a` SDK's `create_agent_card_routes` serves
-this for us.
+`/.well-known/agent.json`). In Go that is `a2asrv.WellKnownAgentCardPath` served
+by `a2asrv.NewStaticAgentCardHandler(card)`.
+
+### The trap: you cannot generate this file from the Go struct
+
+**`a2a-go` v2.5.0 marshals `a2a.AgentCard` to the A2A 1.0 shape, and Nasiko
+validates the A2A 0.2.x shape.** Marshal the struct and three of the eight
+required fields are simply absent, because v2 moved them into a
+`supportedInterfaces[]` array:
+
+```
+$ go run ./probe      # json.MarshalIndent(&a2a.AgentCard{...})
+{
+  "supportedInterfaces": [
+    { "url": "...", "protocolBinding": "JSONRPC", "protocolVersion": "1.0" }
+  ],
+  ...
+}
+--- Nasiko REQUIRED_CARD_FIELDS present? ---
+name               true
+description        true
+url                false
+version            true
+capabilities       true
+skills             true
+protocolVersion    false
+preferredTransport false
+```
+
+**One file satisfies both**, because `validate.rs` checks presence and
+`encoding/json` ignores unknown keys. Write the union: keep
+`supportedInterfaces[]` for the SDK and add `url`, `protocolVersion` and
+`preferredTransport` back at the top level for Nasiko. This is the template all
+nine agents copy.
+
+```json
+{
+  "name": "bp-<name>",
+  "description": "<one line, this is what routing reads>",
+  "version": "1.0.0",
+  "url": "http://bp-<name>:8000/invoke",
+  "protocolVersion": "1.0",
+  "preferredTransport": "JSONRPC",
+  "capabilities": { "streaming": true },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "supportedInterfaces": [
+    { "url": "http://bp-<name>:8000/invoke", "protocolBinding": "JSONRPC", "protocolVersion": "1.0" }
+  ],
+  "skills": [
+    { "id": "<snake_case>", "name": "<human name>", "description": "<what it does>", "tags": ["<tag>"] }
+  ]
+}
+```
+
+Note `"version": "1.0.0"` and not `"1.0"`: the server rejects anything
+`parse_plain_version` will not take, with no default applied
+(`server/src/agents/upload.rs:475-485`).
+
+### Verified, 2026-09-20, with the real CLI
+
+Both directions, on a Go agent directory holding that card plus the §4
+Dockerfile plus a `main.go`:
+
+```
+$ nasiko validate
+Validating agent at .../agents/bp-template
+
+  ✓ Dockerfile
+  ✓ AgentCard.json
+  ✓ source directory
+  ✓ AgentCard.json fields
+  ✓ skills (1 defined)
+  ! docker-compose.yml — missing (recommended)
+  ! .env.example — missing (recommended)
+
+✓ Valid (2 warning(s))
+```
+
+And with the three legacy fields removed, which is exactly what marshalling the
+Go struct gives you:
+
+```
+  ✗ AgentCard.json — missing fields: url, protocolVersion, preferredTransport
+
+✗ 1 error(s), 2 warning(s)
+Error: validation failed
+```
+
+The two warnings are noise for us. `docker-compose.yml` and `.env.example` are
+looked for **inside the agent directory**; ours live at the repo root.
+
+The round-trip is safe in the other direction too: `json.Unmarshal` of the
+superset into `a2a.AgentCard` succeeds and populates `SupportedInterfaces`
+correctly. The extra top-level keys are ignored, not an error.
 
 ## 3. SDK and server shape
 
-PyPI package is **`a2a-sdk`**, pinned in the repo's working template as
-`a2a-sdk[http-server]==1.1.0`. Note the import namespace is `a2a`, the package
-name is `a2a-sdk`.
+Go module is **`github.com/a2aproject/a2a-go/v2`**, latest `v2.5.0` (tagged
+2026-08-18, confirmed on `proxy.golang.org`). Two packages matter: `a2a` for
+the core types and constructors, `a2asrv` for the server.
 
-The server construction pattern, copied from the working example:
+**The v2 executor is an iterator, not an event queue.** This is the single
+biggest difference from every Python example and from v1, and guessing it wrong
+costs an afternoon:
 
-```python
-from a2a.server.agent_execution import AgentExecutor, RequestContext
-from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill, TaskState
-from a2a.helpers import (new_task_from_user_message,
-                         new_text_artifact_update_event,
-                         new_text_status_update_event)
-from starlette.applications import Starlette
-
-class SomethingExecutor(AgentExecutor):
-    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        task = context.current_task or new_task_from_user_message(context.message)
-        await event_queue.enqueue_event(task)
-        # ... working status, then artifact, then completed status
-    async def cancel(self, context, event_queue) -> None:
-        pass
-
-handler = DefaultRequestHandler(agent_executor=SomethingExecutor(),
-                                task_store=InMemoryTaskStore(),
-                                agent_card=agent_card)
-routes = [*create_agent_card_routes(agent_card),
-          *create_jsonrpc_routes(handler, rpc_url="/")]
-app = Starlette(routes=routes)
+```go
+Execute(ctx context.Context, ec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error]
 ```
 
-The example emits **text** artifacts via `new_text_artifact_update_event`. We
-need **JSON** artifacts (`application/json`) because DronaHQ binds to them
-directly. B5 confirms the `a2a-sdk` 1.1.0 helper for a data/JSON part on first
-contact with the SDK and puts the answer in `shared/bp_core/a2a.py` as a single
-`emit_json_artifact(...)` helper every agent calls. **UNVERIFIED** which helper
-name that is; if none exists, construct the `Artifact` with a `DataPart`
-directly. Do not let nine agents each invent this.
+You return a `func(yield func(a2a.Event, error) bool)`. There is no
+`event_queue.enqueue_event`. Server construction, from the module's own
+`examples/helloworld/server/jsonrpc/main.go`:
+
+```go
+executor := a2asrv.AgentExecutorFunc(func(ctx context.Context, ec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		// ... emit events here
+	}
+})
+
+handler := a2asrv.NewHandler(executor)          // transport-agnostic
+mux := http.NewServeMux()
+mux.Handle("/invoke", a2asrv.NewJSONRPCHandler(handler))
+mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
+http.ListenAndServe(":"+port, mux)
+```
+
+`*a2asrv.ExecutorContext` carries `Message`, `TaskID`, `ContextID`, `User` and
+`Metadata`, and it **implements `a2a.TaskInfoProvider`**, so it passes straight
+into the artifact constructors below.
+
+### Open question #1, answered: the JSON artifact helper
+
+There is no one-call helper. Two constructors, and both of the things CONTRACTS
+asks for have to be set by hand afterwards:
+
+```go
+func a2a.NewDataPart(data any) *a2a.Part
+func a2a.NewArtifactEvent(infoProvider a2a.TaskInfoProvider, parts ...*a2a.Part) *a2a.TaskArtifactUpdateEvent
+```
+
+`NewDataPart` leaves `MediaType` empty and `NewArtifactEvent` leaves
+`Artifact.Name` empty. CONTRACTS requires one `application/json` artifact named
+for its `internal/models` struct, so both need assigning:
+
+```go
+part := a2a.NewDataPart(report)
+part.MediaType = "application/json"
+ev := a2a.NewArtifactEvent(ec, part)
+ev.Artifact.Name = "SovReport"
+```
+
+**That is exactly why `internal/a2a` has a `JSONArtifact` helper.** Four lines
+that are easy to get three-quarters right, times nine agents, is how a
+dashboard ends up bound to an artifact with no name.
+
+### The wire shape DronaHQ binds to
+
+Marshalled from the real types, not transcribed from a spec:
+
+```
+--- naive NewDataPart, no MediaType, no Name ---
+{
+  "artifact": {
+    "artifactId": "01a0be25-f06f-7505-9ed9-b81f9f0c47f3",
+    "parts": [ { "data": { "brand_id": "acme", "share": { "acme": 0.42 } } } ]
+  },
+  "contextId": "ctx-456",
+  "taskId": "task-123"
+}
+
+--- with MediaType and Name set by hand ---
+{
+  "artifact": {
+    "artifactId": "01a0be25-f070-7153-afb8-0df865890698",
+    "name": "SovReport",
+    "parts": [
+      {
+        "data": { "brand_id": "acme", "share": { "acme": 0.42 } },
+        "mediaType": "application/json"
+      }
+    ]
+  },
+  "contextId": "ctx-456",
+  "taskId": "task-123"
+}
+```
+
+**Two things for whoever writes a binding.** The payload is at
+`artifact.parts[0].data`, and there is **no `kind` discriminator** on the part:
+v2 discriminates by which content key is present, so a binding that looks for
+`"kind": "data"` finds nothing. The `Part.Content` field's `json:"content"` tag
+never appears on the wire either; `Part` has a custom marshaller.
 
 ## 4. Our Dockerfile (replaces the broken one)
 
-Build context is the repo root, because every agent needs `shared/bp_core`.
+**This is the shared template all nine agents copy.** CONTRACTS §4 puts the
+per-agent `Dockerfile` in the agent track's hands and this template in B5's, so
+change it here and the change is everyone's. It was Python until 2026-09-20 and
+is now Go, built and run by B5 before being written down. Output below.
+
+Build context is the repo root, because every agent imports
+`brandpulse/internal`.
 
 ```dockerfile
-FROM python:3.13-slim
-WORKDIR /app
-COPY shared/ /app/shared/
-RUN pip install --no-cache-dir /app/shared
-COPY agents/bp-<name>/main.py /app/main.py
+# Build context is the repo root, not this directory:
+#   docker build -f agents/bp-<name>/Dockerfile -t bp-<name>:1.0.0 .
+# Every agent imports brandpulse/internal, so the context has to see go.mod.
+
+FROM golang:1.27.1 AS build
+WORKDIR /src
+
+# go.mod and go.sum first so dependency download caches across source edits.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY internal/ ./internal/
+COPY agents/bp-<name>/ ./agents/bp-<name>/
+
+# CGO_ENABLED=0 is load-bearing: the run stage has no libc to link against.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/agent ./agents/bp-<name>
+
+# static:nonroot, not scratch. It carries the CA bundle that outbound TLS to
+# Anakin and the LLM router needs, plus /etc/passwd for the nonroot user.
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/agent /agent
 EXPOSE 8000
-CMD ["python", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+USER nonroot:nonroot
+ENTRYPOINT ["/agent"]
 ```
 
-Built with `docker build -f agents/bp-<name>/Dockerfile .` from the repo root.
+**Four things in there are load-bearing and one is not.**
+
+- `CGO_ENABLED=0`. Distroless static has no libc. A cgo-linked binary exits
+  immediately with a loader error that looks nothing like a Go panic.
+- `gcr.io/distroless/static:nonroot`, not `scratch`. Anakin and the LLM router
+  are both HTTPS, and `scratch` has no CA bundle, so every outbound call fails
+  with `x509: certificate signed by unknown authority`.
+- Repo root as context. `COPY internal/` cannot reach outside the context, so
+  building from inside `agents/bp-<name>/` cannot work at all.
+- `go.mod`/`go.sum` copied before the source. Without that split, every source
+  edit re-downloads the module graph.
+- `-ldflags="-s -w"` is the one that is not load-bearing. It strips the symbol
+  table. Drop it if you want a readable stack trace more than you want ~20%
+  off the binary.
+
+**The binary must read `PORT`.** Nasiko injects it and defaults it to 8000
+(`server/src/state.rs:470`), so bind `":"+os.Getenv("PORT")` with 8000 as the
+fallback, not a hardcoded 8000.
+
+### Verified, 2026-09-20
+
+Built from a staged copy of this repo's `go.mod` and `internal/models/`, plus a
+template `main.go` importing both `brandpulse/internal/models` and
+`github.com/a2aproject/a2a-go/v2/a2a`:
+
+```
+$ docker build -f agents/bp-template/Dockerfile -t bp-template:2.0.0 .
+#13 [build 7/7] RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w"     -o /out/agent ./agents/bp-template
+#13 DONE 3.0s
+#15 naming to docker.io/library/bp-template:2.0.0 done
+
+$ docker images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep bp-template
+bp-template:2.0.0	14.6MB
+
+$ docker run -d -e PORT=8000 -p 18124:8000 bp-template:2.0.0
+$ curl -s http://127.0.0.1:18124/health
+{"ok":true}
+
+$ docker inspect bp-template:2.0.0 --format 'User={{.Config.User}} Entrypoint={{.Config.Entrypoint}}'
+User=nonroot:nonroot Entrypoint=[/agent]
+```
+
+**~15MB per agent, nine agents.** That is the number for the pitch, and it is
+measured, not estimated. A real agent with a database driver and an OTel
+exporter will be larger; this is the floor.
 
 ## 5. Flow guards — env vars on the control plane
 
@@ -200,16 +418,33 @@ hop is proxied by `nasiko-server`:
   We do **not** use this; our orchestration is explicit, which is the point of
   a deterministic pipeline.
 
-**UNVERIFIED:** the exact env var injected into agent containers that carries
-the proxy base URL and the caller's trust credential. No first-party Python
-example calls *through* the proxy — the one client example in the repo
-(`agents/langgraph/src/test_client.py`) hits an agent directly on localhost.
+**ANSWERED 2026-09-20 by B5, from source at commit `58cfe60`: there is no such
+env var.** This section previously guessed at a `NASIKO_PROXY_URL`. It does not
+exist and never did.
 
-**Mitigation:** `bp_core.a2a.call_agent(agent_id, payload)` is the single place
-that knows how to address a peer. It reads `NASIKO_PROXY_URL` (falling back to
-a compose-local `http://bp-{name}:8000/` map) so local dev works today and the
-Nasiko path is a one-file change once B5 reads it off a live deploy. Nobody
-else writes an agent URL anywhere.
+`ServerState::agent_env` (`server/src/state.rs:462-472`) is the one function
+that builds a deployed container's environment, and it injects exactly: the
+agent's own secrets, `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`, and
+`PORT` defaulted to 8000. No base URL, no trust credential. All nine
+Nasiko-shipped example agents were grepped and **none of them calls another
+agent**, which is why no example exists to copy.
+
+The only agent-facing credential is `x-nasiko-agent-token`, a delegation JWT
+the server mints and sends **inbound** to the agent
+(`server/src/router/a2a_dispatch.rs:796-811`), minted only when the server has
+`JWT_SECRET` and best-effort otherwise.
+
+**So `a2a.Call` (CONTRACTS §3) supplies both halves itself:**
+
+1. **Base URL.** We set one, as a vault-wide secret. Suggest `NASIKO_API_URL`.
+   That name is ours, not Nasiko's, so do not go looking for it in their docs.
+2. **Credential.** Replay the inbound `x-nasiko-agent-token` off the request the
+   caller is already serving. That is a per-request value, so it threads through
+   `a2a.Call`'s `ctx`. It cannot live in a package-level client.
+
+Point 2 is inference from how the server mints and consumes the token, not a
+documented contract, and it is confirmed on the first live two-agent call.
+Detail in [DEPLOY-NOTES.md](../DEPLOY-NOTES.md) Finding 5.
 
 Client side uses `A2ACardResolver` + `A2AClient` from `a2a.client`.
 
@@ -256,8 +491,12 @@ the product repo and explaining the topology.
 injection behaviour, stock-OpenAI-SDK usage, CLI commands, contributing flow.
 
 **Shaky, verify on a live cluster before the demo:** the JSON-artifact helper
-name in `a2a-sdk` 1.1.0; the agent-to-agent proxy env var; whether
-`/v1/embeddings` is proxied at all; whether PR CI exists.
+name in `a2a-sdk` 1.1.0; whether `/v1/embeddings` is proxied at all; whether PR
+CI exists; the OTLP collector address reachable from inside a container;
+whether replaying `x-nasiko-agent-token` authenticates a peer call (§7).
+
+The agent-to-agent proxy env var came off this list on 2026-09-20 by being
+answered, not verified: it does not exist. See §7.
 
 Open these: the [repo](https://github.com/Nasiko-Labs/nasiko),
 [A2A_PROTOCOL.md](https://github.com/Nasiko-Labs/nasiko/blob/main/docs/A2A_PROTOCOL.md),

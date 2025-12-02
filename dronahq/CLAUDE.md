@@ -53,4 +53,4 @@ directly to the typed JSON artifacts.
 
 ## Who calls this
 
-Brand owners, in the chat agent. Analysts, in a browser. Judges, at the demo.
+Brand owners, in the DronaHQ chat. Analysts, in a browser. Judges, at the demo.

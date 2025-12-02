@@ -53,8 +53,10 @@ against an API that is not up yet. Task 1 exists to kill the first. Task 2 kills
 the second before it can multiply by nine. Tasks 7 and 8 are ordered so the
 third cannot happen.
 
-There is a fourth, smaller one: WhatsApp outbound send mechanics. That is a
-**day-one** probe inside Task 8, not a demo-morning discovery.
+There is a fourth, smaller one: whether a DronaHQ Agent exports to a file at
+all. That is a **day-one** console check inside Task 8, not a demo-morning
+discovery. It used to be WhatsApp outbound send mechanics; the scope change of
+2026-09-20 removed that probe along with the channel.
 
 ---
 
@@ -350,7 +352,7 @@ same tools, on the Chat trigger instead of a WhatsApp one. See
 **First console check of the day:** find out whether a DronaHQ **Agent** can be
 exported to a file at all. App export is documented; agent export is not
 documented anywhere, and `dronahq/CLAUDE.md` currently promises a committed
-`whatsapp-agent.json`. If no export exists, that file becomes a written runbook
+`chat-agent.json`. If no export exists, that file becomes a written runbook
 plus screenshots and you correct `dronahq/CLAUDE.md` in the same commit. Find
 this out before you build the agent, not after.
 
@@ -417,7 +419,7 @@ this out before you build the agent, not after.
 
 All nine agents answering real A2A calls at deployed URLs; OTel spans visible in
 `nasiko observe` for all nine; the flow-guard cap demonstrably dropping an
-over-cap call; the DronaHQ dashboard rendering a live run; the WhatsApp agent
+over-cap call; the DronaHQ dashboard rendering a live run; the chat agent
 delivering a brief and an alert; the Nasiko PR open; real `eval/` numbers in
 `PRICING.md`. Screenshots of each in the PR.
 
