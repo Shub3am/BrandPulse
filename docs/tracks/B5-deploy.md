@@ -232,35 +232,30 @@ agent before the other eight deploy.
       primary control. If the guard is what stops you, B4 has a bug.
 - [ ] Commit.
 
-## Task 4: Cards and Dockerfiles for the other eight
+## Task 4: Validate the nine cards, do not write them
 
-**Files:** `agents/bp-*/AgentCard.json`, `agents/bp-*/Dockerfile`
+**Files:** none of `agents/`. You file findings in `HACKATHON_NOTES.md`.
 
-- [ ] One card each. Required fields per research/nasiko.md §2, read from
-      `cli/src/commands/validate.rs` rather than the docs:
-      `name, description, url, version, capabilities, skills, protocolVersion,
-      preferredTransport`.
-- [ ] One Dockerfile each, identical to bp-sov's except for the two
-      `agents/bp-<name>/` paths and the build target. They are near-copies on
-      purpose: nine files that differ in two lines are easier to trust than one
-      clever shared build.
-- [ ] `skills` is never empty. An empty `skills` is only a warning to
-      `validate`, but an agent with no skills is invisible to routing. One skill
-      per card with a real `id`, `description` and `examples`.
-- [ ] `llm_provider: null` on the **four deterministic agents**: bp-collector,
-      bp-sov, bp-detector, bp-orchestrator. It is a true statement about the
-      architecture and a judge will notice it. Note that research/nasiko.md §2
-      says "five deterministic agents" and then lists four; four is correct,
-      because five of the nine do make an LLM call (onboarder, enricher,
-      clusterer, responder, briefer).
-- [ ] `nasiko deploy` uses `name` + `version` as the image tag and rewrites
-      `version` back into the file via `sync_card_version`. Bump `version` per
-      deploy or accept the rewrite, but do not be surprised by a dirty tree.
-- [ ] `nasiko deploy` also writes `.nasiko/agent.json` caching the agent id.
-      **Gitignore it**, and keep the file locally so a redeploy updates the
-      agent rather than duplicating it.
-- [ ] `nasiko validate` on each before deploying any.
-- [ ] Commit per agent.
+CONTRACTS §4 gives `AgentCard.json` and `Dockerfile` to the track that writes
+the agent. This task used to say you write nine of each, which contradicted it.
+The contract wins: nine agents across five worktrees each editing eighteen
+files a sixth worktree also edits is a guaranteed merge-day conflict, and the
+Dockerfile varies only by binary name so there is nothing for you to tune.
+
+What is yours here:
+
+- [ ] The templates in `research/nasiko.md` §2 and §4. Already done, and the
+      union card is the reason the first deploy will not fail.
+- [ ] Every requirement those templates imply now lives in
+      [agents/CLAUDE.md](../../agents/CLAUDE.md), which the owning tracks
+      actually read: the union shape, non-empty `skills`, `llm_provider: null`
+      on the four deterministic agents, the `sync_card_version` rewrite, and
+      `.nasiko/agent.json`.
+- [ ] `nasiko validate` on all nine before deploying any. A failure is a
+      blocker row naming the owning track, not an edit by you.
+- [ ] `research/nasiko.md` §2 says "five deterministic agents" and then lists
+      four. Four is correct: onboarder, enricher, clusterer, responder and
+      briefer all call an LLM. Fix the sentence, it is your file.
 
 ## Task 5: Deploy the fleet
 

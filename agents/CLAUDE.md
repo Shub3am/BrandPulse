@@ -60,7 +60,28 @@ Per-agent input and output signatures are frozen in
   upload.** One letter apart, one fatal.
 - **`AgentCard.json` uses `protocolVersion: "1.0"`.** The Nasiko example ships
   `"0.2.9"` and a real cluster rejects it with `-32009 VersionNotSupported`.
-- **`skills` is never empty** or the agent is invisible to routing.
+- **You write your own `AgentCard.json` and `Dockerfile`**, from the templates
+  in `docs/research/nasiko.md` §2 and §4. B5 owns the templates and the deploy
+  and edits neither file: a bad card comes back to you as a blocker row.
+- **The card is a union of two shapes and needs both halves.** `a2a-go` v2.5.0
+  marshals to A2A 1.0, which moves `url`, `protocolVersion` and
+  `preferredTransport` into `supportedInterfaces[]`. Nasiko's `validate.rs`
+  requires all three at the **top level**. So generating the card from the Go
+  struct produces a card that fails `nasiko validate`, and a card with only the
+  top-level three is invisible to an A2A 1.0 consumer. Write both. It is safe
+  because the validator checks presence and `encoding/json` ignores unknown
+  keys. B5 confirmed this in both directions against the real CLI.
+- **`skills` is never empty** or the agent is invisible to routing. One skill
+  per card with a real `id`, `description` and `examples`. Empty `skills` is
+  only a warning to `validate`, which is why it is easy to ship broken.
+- **`llm_provider: null` on the four agents that make no LLM call**:
+  bp-collector, bp-sov, bp-detector, bp-orchestrator. It is true, and it is the
+  kind of true a judge notices. The other five do call an LLM.
+- **`nasiko deploy` rewrites `version` back into your card** via
+  `sync_card_version`, and tags the image `name` + `version`. Expect a dirty
+  tree after a deploy rather than being surprised by one. It also writes
+  `.nasiko/agent.json` caching the agent id: that is gitignored, and keeping it
+  locally is what makes a redeploy update the agent instead of duplicating it.
 - **The Dockerfile builds with the repo root as context** so `internal/` and
   `go.mod` are available, and it is multi-stage: `golang:1.27` to build with
   `CGO_ENABLED=0`, then a distroless static run stage holding one binary. The
