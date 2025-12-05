@@ -660,7 +660,8 @@ unique constraint:
 **Who owns `AgentCard.json` and `Dockerfile`.** The track that writes the agent
 owns both, and commits them with the agent. B5 owns neither file and edits
 neither: B5 owns the shared template they are copied from
-(`docs/research/nasiko.md` §4), the `nasiko.yaml`, and the deploy. If a card is
+(`docs/research/nasiko.md` §2 for the card, §4 for the Dockerfile), the
+`nasiko.yaml`, and the deploy. If a card is
 wrong, B5 files it in `HACKATHON_NOTES.md` under "Open blockers" and the owning
 track fixes it. Nine agents in five worktrees each editing eighteen files that
 a sixth worktree also edits is a guaranteed conflict on merge day, and the
