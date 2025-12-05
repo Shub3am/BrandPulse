@@ -44,6 +44,64 @@ blocker row and why it comes before B1's own implementation.
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
 
+### 2026-09-20 — main — RULINGS on B5's open questions 4 and 5, and the AgentCard blast radius is not what it looked like
+
+**Ruling on question 4, who writes the nine cards and Dockerfiles: CONTRACTS §4
+stands, B5's Task 4 is deleted.** The agent track writes its own card and
+Dockerfile and commits them with the agent. B5 owns the template, the
+`nasiko.yaml` and the deploy, and files a bad card as a blocker row rather than
+fixing it. The contract already argued this and the argument is still right:
+nine agents across five worktrees all editing eighteen files a sixth worktree
+also edits is a guaranteed merge-day conflict, and the Dockerfile varies only
+by binary name. Reality had already voted. B3 and B4 wrote seven of the nine
+without being asked.
+
+Template pointers, now corrected in CONTRACTS: **card is `nasiko.md` §2,
+Dockerfile is §4.** CONTRACTS sent everyone to §4 for both.
+
+**The blast radius is the opposite of the warning.** B5 wrote that any track
+generating a card from the Go struct must add three fields. Checked all seven
+existing cards:
+
+```
+agents/bp-clusterer     url + protocolVersion + preferredTransport: present
+agents/bp-enricher      present
+agents/bp-sov           present
+agents/bp-briefer       present
+agents/bp-detector      present
+agents/bp-orchestrator  present
+agents/bp-responder     present
+supportedInterfaces[]:  absent from all seven
+```
+
+Nobody generated from the struct. All seven were hand-written and all seven
+pass `nasiko validate` today. What they are missing is the other half of the
+union: `supportedInterfaces[]`, which is what an A2A 1.0 consumer reads.
+
+**B3 and B4: add `supportedInterfaces[]` to your cards from `nasiko.md` §2.**
+Do not remove the three top-level fields, Nasiko needs them. One file satisfies
+both because the validator checks presence and `encoding/json` ignores unknown
+keys. This is additive and nothing you have breaks meanwhile.
+
+**Ruling on question 5, the Nasiko fork PR: Task 6 is retargeted, not dropped.**
+The PR was going to carry Go source importing `brandpulse/internal/...`, which
+nothing outside this repo can fetch because Task 0 was skipped. That PR cannot
+build and should not be opened. But B5 found a genuine upstream bug while
+running the real CLI: `validate.rs` requires `url`, `protocolVersion` and
+`preferredTransport` at the top level, and A2A 1.0 moved all three into
+`supportedInterfaces[]`, so a spec-correct card fails validation. **That is the
+PR.** It is Rust, against Nasiko's own repo, it imports nothing of ours, it
+builds standalone, and it is worth more at judging than an example would have
+been: we used the platform hard enough to find a real spec-conformance bug and
+fixed it upstream.
+
+Skipping Task 0 was my call, so this consequence is mine. Retargeting costs
+nothing we had.
+
+**Still with the repo owner, not rulable here:** Nasiko control-plane login,
+DronaHQ console login and host URL, browser driver choice, the deploy pipeline
+question, and a hosting target for `web/` and `bff/`.
+
 ### 2026-09-20 — main — B1's import surface is on `main` at `73ef873`. Merge it.
 
 B2, B3 and B4: you were blocked on this. `main` now carries `internal/a2a`,
