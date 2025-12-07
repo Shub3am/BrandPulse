@@ -1,0 +1,109 @@
+# Why this exists: six tracks work in six worktrees and nothing else checks
+# that they still compile together. It must never need a credential, because a
+# CI run that can only pass with a key is a CI run that stops running.
+#
+# What it must not do: spend an Anakin credit, reach the network for fixtures,
+# or deploy. BP_FIXTURE_MODE=replay is what holds that line. Deploy lives in
+# deploy.yml.
+
+name: ci
+
+on:
+  push:
+    branches: ["main", "track/**"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first. Seven tracks pushing all
+# afternoon otherwise queue behind each other for results nobody reads.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BP_FIXTURE_MODE: replay
+
+jobs:
+  go:
+    name: go build, vet, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Fails if go.mod or go.sum would change. A tree that only builds after
+      # an implicit tidy is a tree that breaks on the next machine.
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      - name: go test
+        run: go test ./... 2>&1 | tee test.log
+
+      # Every package reporting "no test files" is the state this repo was in
+      # when CI was added, and it passes `go test` silently. Say it out loud on
+      # every run so "CI is green" cannot come to mean "nothing is tested".
+      - name: report how much is actually tested
+        run: |
+          total=$(go list ./... | wc -l)
+          untested=$(grep -c 'no test files' test.log || true)
+          echo "::notice::$untested of $total packages have no test files"
+          if [ "$untested" = "$total" ]; then
+            echo "::warning::No package in this repo has a single test. go test passed vacuously."
+          fi
+
+  web:
+    name: web typecheck and build
+    runs-on: ubuntu-latest
+    # web/ is B6's and may not have a lockfile yet. Skip rather than fail red
+    # on every push for a directory that is still being created.
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: is web/ ready
+        id: ready
+        run: |
+          if [ -f web/package.json ]; then echo "yes=true" >> "$GITHUB_OUTPUT"
+          else echo "yes=false" >> "$GITHUB_OUTPUT"; echo "::notice::web/package.json absent, skipping"; fi
+
+      - uses: actions/setup-node@v5
+        if: steps.ready.outputs.yes == 'true'
+        with:
+          node-version: "22"
+
+      - name: install
+        if: steps.ready.outputs.yes == 'true'
+        working-directory: web
+        run: npm ci || npm install
+
+      - name: typecheck
+        if: steps.ready.outputs.yes == 'true'
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: build
+        if: steps.ready.outputs.yes == 'true'
+        working-directory: web
+        run: npm run build
+
+  cards:
+    name: AgentCards validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The union-card rule from agents/CLAUDE.md, enforced. This is the half
+      # of `nasiko validate` that needs no cluster, so the tracks can run the
+      # same script locally before they have a Nasiko login.
+      - name: every card carries both shapes
+        run: python3 scripts/check_agent_cards.py
