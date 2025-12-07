@@ -22,3 +22,7 @@ next-env.d.ts
 # Worktrees for the parallel tracks live next to the repo, not inside it,
 # but guard against a stray one anyway.
 /worktrees/
+
+# nasiko deploy caches the agent id here. Keep it locally so a redeploy
+# updates the agent rather than duplicating it, but never commit it.
+.nasiko/

@@ -1,0 +1,149 @@
+# Why this exists: the repo rule is "deploy through the automated pipeline",
+# and there was no pipeline. This is it.
+#
+# What it must not do: run on a push. Nine agents redeploying because someone
+# fixed a typo in a README is how a demo cluster ends up mid-rollout on stage.
+# Deploys are asked for, by hand, one agent or all nine.
+#
+# It is written to skip cleanly rather than fail red while the Nasiko login is
+# still missing. A pipeline that has failed on every run for a day is a
+# pipeline everyone has learned to ignore.
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: "Which agent to deploy, or 'all' for the nine"
+        required: true
+        default: "bp-sov"
+      confirm:
+        description: "Type the agent name again to confirm"
+        required: true
+
+jobs:
+  deploy:
+    name: nasiko deploy
+    runs-on: ubuntu-latest
+    environment: nasiko
+    steps:
+      - uses: actions/checkout@v5
+
+      # github.event.inputs is attacker-controllable on a public repo, so it
+      # goes through env and never into a command line directly.
+      - name: confirm the agent name
+        env:
+          AGENT: ${{ inputs.agent }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$AGENT" != "$CONFIRM" ]; then
+            echo "::error::confirmation '$CONFIRM' does not match agent '$AGENT'"
+            exit 1
+          fi
+          case "$AGENT" in
+            all|bp-orchestrator|bp-onboarder|bp-collector|bp-enricher|bp-clusterer|bp-detector|bp-responder|bp-briefer|bp-sov) ;;
+            *) echo "::error::'$AGENT' is not one of the nine agents"; exit 1 ;;
+          esac
+
+      - name: do we have a Nasiko login yet
+        id: creds
+        env:
+          CONTROL_PLANE: ${{ secrets.NASIKO_CONTROL_PLANE_URL }}
+          TOKEN: ${{ secrets.NASIKO_AUTH_TOKEN }}
+        run: |
+          if [ -z "$CONTROL_PLANE" ] || [ -z "$TOKEN" ]; then
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NASIKO_CONTROL_PLANE_URL or NASIKO_AUTH_TOKEN is unset, so there is nothing to deploy to. Set both as repository secrets. Skipping rather than failing."
+          else
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # No published crate or release binary was found, so the CLI is built
+      # from source exactly as research/nasiko.md section 8 records it. This is
+      # the slow step; cache it or every deploy pays for a Rust build.
+      - uses: actions/checkout@v5
+        if: steps.creds.outputs.have == 'true'
+        with:
+          repository: Nasiko-Labs/nasiko
+          path: .nasiko-src
+          ref: main
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.creds.outputs.have == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.creds.outputs.have == 'true'
+        with:
+          workspaces: .nasiko-src
+
+      - name: install the nasiko CLI
+        if: steps.creds.outputs.have == 'true'
+        run: cargo install --path .nasiko-src/cli --locked
+
+      - name: connect and authenticate
+        if: steps.creds.outputs.have == 'true'
+        env:
+          CONTROL_PLANE: ${{ secrets.NASIKO_CONTROL_PLANE_URL }}
+          NASIKO_AUTH_TOKEN: ${{ secrets.NASIKO_AUTH_TOKEN }}
+        run: |
+          nasiko connect "$CONTROL_PLANE"
+          nasiko auth login
+
+      # Vault-wide, so every agent sees them. OTEL_EXPORTER_OTLP_ENDPOINT is
+      # injected for nobody, Python included, which is why it is set here and
+      # not assumed.
+      - name: set vault-wide secrets
+        if: steps.creds.outputs.have == 'true'
+        env:
+          ANAKIN_API_KEY: ${{ secrets.ANAKIN_API_KEY }}
+          OTEL_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+        run: |
+          # Written as `if`, not `[ -n "$X" ] && cmd`. The runner uses bash -e,
+          # where that idiom returns 1 for an unset optional secret and kills
+          # the deploy.
+          if [ -n "$ANAKIN_API_KEY" ]; then
+            nasiko secrets set ANAKIN_API_KEY "$ANAKIN_API_KEY"
+          else
+            echo "::warning::ANAKIN_API_KEY unset, every collector will fail at runtime"
+          fi
+          if [ -n "$OTEL_ENDPOINT" ]; then
+            nasiko secrets set OTEL_EXPORTER_OTLP_ENDPOINT "$OTEL_ENDPOINT"
+          else
+            echo "::notice::OTEL_EXPORTER_OTLP_ENDPOINT unset, agents run but are invisible to nasiko observe"
+          fi
+
+      - name: validate before deploying anything
+        if: steps.creds.outputs.have == 'true'
+        env:
+          AGENT: ${{ inputs.agent }}
+        run: |
+          python3 scripts/check_agent_cards.py
+          shopt -s nullglob
+          if [ "$AGENT" = "all" ]; then targets=(agents/bp-*); else targets=("agents/$AGENT"); fi
+          if [ ${#targets[@]} -eq 0 ]; then echo "::error::no agent directory matched, agents/ is still empty"; exit 1; fi
+          for dir in "${targets[@]}"; do
+            echo "== $dir"
+            ( cd "$dir" && nasiko validate )
+          done
+
+      # Deploy, never upload. Both nasiko upload and the dashboard zip uploader
+      # post to /api/agents/upload, whose validate_agent_zip requires a main.py
+      # and rejects a Go agent with a 400.
+      - name: deploy
+        if: steps.creds.outputs.have == 'true'
+        env:
+          AGENT: ${{ inputs.agent }}
+        run: |
+          shopt -s nullglob
+          if [ "$AGENT" = "all" ]; then targets=(agents/bp-*); else targets=("agents/$AGENT"); fi
+          if [ ${#targets[@]} -eq 0 ]; then echo "::error::no agent directory matched, agents/ is still empty"; exit 1; fi
+          for dir in "${targets[@]}"; do
+            name=$(basename "$dir")
+            echo "== deploying $name"
+            ( cd "$dir" && nasiko deploy . --name "$name" )
+          done
+
+      - name: what is running now
+        if: steps.creds.outputs.have == 'true'
+        run: nasiko ps --json
