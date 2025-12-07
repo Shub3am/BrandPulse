@@ -283,26 +283,36 @@ What is yours here:
       beat, and Nasiko computes it. We read it, we do not build it.
 - [ ] Screenshot everything. Commit to `docs/screenshots/`.
 
-## Task 6: The Nasiko fork PR
+## Task 6: The Nasiko PR, fixing the validator bug you found
 
-**Files:** in the fork: `agents/brandpulse-*/`, `agents/brandpulse/README.md`
+**Files:** in the Nasiko fork, `cli/src/commands/validate.rs` plus its tests.
 
-- [ ] Task 0 must already be on `main`. The fork PR carries Go source with
-      import paths in it, and `brandpulse/internal/...` is not a fetchable
-      module for anyone outside this repo.
-- [ ] Copy the nine agent directories in as `agents/brandpulse-<name>/`.
-- [ ] `agents/brandpulse/README.md`: what BrandPulse is, the nine-agent topology
-      with a diagram, which four agents are deterministic and which five use an
-      LLM, a link to the product repo, and the flow-guard settings it expects.
-- [ ] Say in that README that these are Go agents on a distroless base and give
-      the image size. It is the shortest way to explain why there is no
-      `main.py` and why the dashboard uploader is not the path.
-- [ ] There is **no registry or index file to update**: `agents/` is a flat
-      directory. Touch `agents/THIRD_PARTY_LICENSES.md` only if a Dockerfile
-      installs a third-party binary at build time. Ours do not.
-- [ ] One logical change per PR, clear what/why description, per their
-      CONTRIBUTING.md.
+The original plan was to copy the nine agent directories into the fork. That
+PR cannot build. It carries Go source importing `brandpulse/internal/...`,
+which is not a fetchable module for anyone outside this repo because Task 0
+was skipped, and skipping Task 0 was the coordinating session's call. So the
+agent-vendoring PR is dropped.
+
+What replaces it is better. Your finding 7 is a genuine spec-conformance bug in
+their CLI, found by running it rather than reading it:
+
+- [ ] `validate.rs` requires `url`, `protocolVersion` and `preferredTransport`
+      at the top level of the card. A2A **1.0** moved all three into
+      `supportedInterfaces[]`, so a spec-correct card written by any current
+      A2A SDK fails `nasiko validate`. Today the only card that passes is one
+      carrying both shapes, which is what we ship and what nobody should have
+      to discover by hand.
+- [ ] Make the validator accept either placement: read the three from the top
+      level, and fall back to the first entry of `supportedInterfaces[]`. Keep
+      the existing error message for a card that has neither.
+- [ ] A test per placement: top-level only, `supportedInterfaces` only, both,
+      neither. Rust, in their tree, importing nothing of ours.
+- [ ] One logical change, what and why, per their CONTRIBUTING.md.
 - [ ] Open the PR. Link it in `HACKATHON_NOTES.md`.
+
+This is a stronger submission than vendoring nine directories would have been.
+It says we used the platform hard enough to find a real bug in it and sent the
+fix back, and it builds on its own.
 
 ## Task 7: DronaHQ dashboard (the ops and analyst view)
 
