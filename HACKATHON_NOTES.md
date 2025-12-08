@@ -29,8 +29,8 @@ Newest entry at the bottom of its section.
 | B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
 | B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
-| B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
-| B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
+| ~~B5~~ | ~~you~~ | ~~No deploy pipeline~~ | **closed 2026-09-20**, `ci.yml` and `deploy.yml` exist, see below |
+| ~~B5, B6~~ | ~~you~~ | ~~No hosting target for `web/` and `bff/`~~ | **closed 2026-09-20**, ruled: localhost for the demo, see below |
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
 
 In Go a missing package is a compile error for everyone downstream, not a
@@ -43,6 +43,48 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — there is a pipeline now, and hosting is ruled
+
+**CI is live.** `.github/workflows/ci.yml` runs on `main` and every `track/**`
+push: `go mod tidy` drift check, `go build`, `go vet`, `go test` under
+`BP_FIXTURE_MODE=replay`, a `web/` typecheck and build that skips itself while
+`web/package.json` is absent, and an AgentCard check. It never needs a
+credential.
+
+It also prints how many packages have no test files, on every run. Today that
+is all of them, so `go test` passes vacuously, and "CI is green" must not come
+to mean "this is tested" while that is true.
+
+**`scripts/check_agent_cards.py` is runnable on your laptop**, and it is the
+half of `nasiko validate` that needs no cluster. Run it before you push a card.
+Against the seven cards that exist today:
+
+```
+7 card(s) checked, all 7 failed
+::error agents/bp-{briefer,clusterer,detector,enricher,orchestrator,responder,sov}/AgentCard.json
+   no supportedInterfaces[], so an A2A 1.0 consumer cannot see this agent's transport
+```
+
+Nothing else was flagged, so `protocolVersion`, `skills` and the eight
+top-level fields are already right in all seven. **B3 and B4: this is a
+one-line addition per card**, and until you make it, CI is red on your branch.
+
+**Deploy is live and deliberately hard to fire.** `deploy.yml` is
+`workflow_dispatch` only, never on push, and asks you to type the agent name
+twice. While `NASIKO_CONTROL_PLANE_URL` and `NASIKO_AUTH_TOKEN` are unset it
+warns and skips instead of failing, because a pipeline that has been red all
+day is a pipeline everyone ignores. It builds the CLI from source, since
+`nasiko.md` §8 found no published binary.
+
+`actionlint` is clean on both files.
+
+**Hosting ruling: `web/` and `bff/` run on localhost for the demo**, against
+the Docker Postgres on 5433 and the deployed Nasiko agent URLs. No Vercel, no
+hosted Postgres, no new accounts. B6, build for that and stop waiting.
+
+**Browser driver ruling: `clickr-runner`** for the DronaHQ console work in B5
+Tasks 7 and 8, once the console login exists.
 
 ### 2026-09-20 — main — RULINGS on B5's open questions 4 and 5, and the AgentCard blast radius is not what it looked like
 
