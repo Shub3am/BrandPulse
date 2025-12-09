@@ -17,7 +17,10 @@ import json
 import pathlib
 import sys
 
-# Read out of cli/src/commands/validate.rs, not out of the Nasiko docs.
+# Read out of cli/src/commands/validate.rs, not out of the Nasiko docs. The
+# card template a track copies from is docs/research/nasiko.md section 2; if
+# this tuple and that template ever disagree, the template is what agents
+# actually ship, so fix the template first and then this.
 NASIKO_REQUIRED_TOP_LEVEL = (
     "name",
     "description",
@@ -50,14 +53,15 @@ def problems_with(card: dict) -> list[str]:
             "agent's transport. Add it, keep the top-level fields too."
         )
 
-    version = card.get("protocolVersion")
-    if version != REQUIRED_PROTOCOL_VERSION:
+    # Both of these keys are in the tuple above, so the value checks only run
+    # once the key is present. One defect should cost one CI annotation.
+    if "protocolVersion" in card and card["protocolVersion"] != REQUIRED_PROTOCOL_VERSION:
         problems.append(
-            f"protocolVersion is {version!r}, a real cluster rejects anything "
-            f"but {REQUIRED_PROTOCOL_VERSION!r} with -32009 VersionNotSupported"
+            f"protocolVersion is {card['protocolVersion']!r}, a real cluster rejects "
+            f"anything but {REQUIRED_PROTOCOL_VERSION!r} with -32009 VersionNotSupported"
         )
 
-    if not card.get("skills"):
+    if "skills" in card and not card["skills"]:
         problems.append("skills is empty, so the agent is invisible to routing")
 
     return problems
