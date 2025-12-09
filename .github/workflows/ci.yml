@@ -15,8 +15,8 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# A second push to the same branch cancels the first. Seven tracks pushing all
-# afternoon otherwise queue behind each other for results nobody reads.
+# Seven tracks pushing all afternoon otherwise queue behind each other for
+# results nobody reads.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -29,15 +29,15 @@ jobs:
     name: go build, vet, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v5
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@e626ada899467caf4efc6cfd0484b965da944ce8 # v6
         with:
           go-version-file: go.mod
           cache: true
 
-      # Fails if go.mod or go.sum would change. A tree that only builds after
-      # an implicit tidy is a tree that breaks on the next machine.
+      # A tree that only builds after an implicit tidy is a tree that breaks on
+      # the next machine.
       - name: go.mod is tidy
         run: |
           go mod tidy
@@ -53,6 +53,7 @@ jobs:
       # Every package reporting "no test files" is the state this repo was in
       # when CI was added, and it passes `go test` silently. Say it out loud on
       # every run so "CI is green" cannot come to mean "nothing is tested".
+      # It goes quiet on its own the day any single test lands.
       - name: report how much is actually tested
         run: |
           total=$(go list ./... | wc -l)
@@ -65,45 +66,35 @@ jobs:
   web:
     name: web typecheck and build
     runs-on: ubuntu-latest
-    # web/ is B6's and may not have a lockfile yet. Skip rather than fail red
-    # on every push for a directory that is still being created.
+    defaults:
+      run:
+        working-directory: web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v5
 
-      - name: is web/ ready
-        id: ready
-        run: |
-          if [ -f web/package.json ]; then echo "yes=true" >> "$GITHUB_OUTPUT"
-          else echo "yes=false" >> "$GITHUB_OUTPUT"; echo "::notice::web/package.json absent, skipping"; fi
-
-      - uses: actions/setup-node@v5
-        if: steps.ready.outputs.yes == 'true'
+      - uses: actions/setup-node@db0fb3a98ed314b69026b6e8c9be26a7e2fe65a8 # v5
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: install
-        if: steps.ready.outputs.yes == 'true'
-        working-directory: web
-        run: npm ci || npm install
+      - run: npm ci
 
-      - name: typecheck
-        if: steps.ready.outputs.yes == 'true'
-        working-directory: web
-        run: npx tsc --noEmit
+      # Ahead of the build on purpose. `next build` type-checks too, but it
+      # reports the first error after a full compile; this reports all of them
+      # in seconds.
+      - run: npm run typecheck
 
-      - name: build
-        if: steps.ready.outputs.yes == 'true'
-        working-directory: web
-        run: npm run build
+      - run: npm run build
 
   cards:
     name: AgentCards validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v5
 
-      # The union-card rule from agents/CLAUDE.md, enforced. This is the half
-      # of `nasiko validate` that needs no cluster, so the tracks can run the
-      # same script locally before they have a Nasiko login.
+      # Its own job so a broken card is not buried under a Go build failure.
+      # The same script runs on a laptop, which is the point: tracks can check
+      # a card before anyone has a Nasiko login.
       - name: every card carries both shapes
         run: python3 scripts/check_agent_cards.py
