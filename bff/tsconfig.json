@@ -1,0 +1,21 @@
+{
+  // Tests are compiled, not excluded: tsx strips types without checking them,
+  // so leaving them out of tsc means a broken test file is never typechecked.
+  // The Dockerfile deletes dist/**/*.test.* instead.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src/**/*.ts"]
+}

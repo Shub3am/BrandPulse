@@ -20,7 +20,7 @@ Why Go: [docs/decisions/001-go-for-agents.md](docs/decisions/001-go-for-agents.m
 | `eval/` | Classifier accuracy and real cost per brand-day. [CLAUDE.md](eval/CLAUDE.md) |
 | `dronahq/` | Exported chat agent and dashboard app. [CLAUDE.md](dronahq/CLAUDE.md) |
 | `web/` | Next.js product dashboard. [CLAUDE.md](web/CLAUDE.md) |
-| `bff/` | Fastify backend-for-frontend, the dashboard's only backend. |
+| `bff/` | Fastify backend-for-frontend, the dashboard's only backend. [CLAUDE.md](bff/CLAUDE.md) |
 | `docs/` | Contracts, research, track briefs, decisions, pricing. |
 | `scripts/integration/` | End-to-end and deployed smoke tests. B7 owns them. |
 

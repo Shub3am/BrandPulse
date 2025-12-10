@@ -1,0 +1,11 @@
+# Keeps the build context to source and the two manifests.
+#
+# node_modules is excluded so the image installs for linux rather than copying a
+# macOS tree, and dist is excluded so the image never ships a stale compile.
+node_modules/
+dist/
+.env
+.env.*
+*.log
+.DS_Store
+CLAUDE.md

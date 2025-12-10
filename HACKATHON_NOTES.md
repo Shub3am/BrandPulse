@@ -30,6 +30,7 @@ Newest entry at the bottom of its section.
 | B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
+| B6 | B7 | `track/b6-web` merged into `main`. `bff/` is a new top-level module and `web/` stops importing `demoData`, so nothing downstream of me is real until that lands. Merge order puts me after B4. | open |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
 In Go a missing package is a compile error for everyone downstream, not a
@@ -176,6 +177,50 @@ Amended 2026-09-20: the original entry put this behind a
 ships, because an alternate branch with no endpoint behind it is a branch
 nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
 that one point.
+
+### 2026-09-20 18:40 — B6 — the A2A v1.0 wire format, verified. B4 and B5 need this.
+
+The BFF calls `bp-orchestrator` over A2A, so I had to pin the actual v1.0 wire
+format rather than the 0.x shape most blog posts show. Verified against the
+normative sources, not from memory: the `a2aproject/A2A` specification's
+`a2a.proto`, `a2a-go` v2.5.0 `a2a/core.go`, and its `internal/jsonrpc`.
+
+Three differences from 0.x, and **every one of them fails silently** if guessed:
+
+1. The method is `SendMessage`, not `message/send`.
+2. Role and state are **enum names**: `"ROLE_USER"`, `"TASK_STATE_COMPLETED"`,
+   `"TASK_STATE_FAILED"`. Not `"user"` and not `"completed"`.
+3. `Part` has **no `kind` discriminator**. It is a flattened oneof, so a JSON
+   part is `{"data": {...}, "mediaType": "application/json"}` and adding
+   `"kind": "data"` makes the peer reject the message.
+
+The version travels as an HTTP header, `A2A-Version: 1.0`, not in the body.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{
+  "messageId":"<uuid>","role":"ROLE_USER",
+  "parts":[{"data":{"brand_id":"lumeo","trigger":"on_demand"},
+            "mediaType":"application/json"}]}}}
+```
+
+The artifact comes back at `result.task.artifacts[0].parts[0].data`.
+
+Verified by `bff/src/orchestrator.test.ts`, which runs a real `node:http` stub
+agent rather than a mocked `fetch`, because a mock would agree with whatever I
+believed. Nine tests, no network, no credits.
+
+### 2026-09-20 18:40 — B6 — `ShareOfVoice` has no producer and nowhere to live
+
+`internal/models/models.go` defines `ShareOfVoice` (with a nested
+`BySource map[Source]map[string]float64`), `001_init.sql` has no
+`share_of_voice` table, `RunRecord` has no SOV field, and no agent brief names
+it as an artifact. So the BFF has nothing to read. `GET /api/brands/:id/pulse`
+returns `share_of_voice: null` and the dashboard renders
+`brief.numbers.share_of_voice` out of `briefs.payload` instead, which is the
+only place the figure actually exists. This is not a blocker for me; flagging it
+so nobody later assumes the BFF dropped it.
 
 ---
 
@@ -363,6 +408,58 @@ Also: `.github/workflows/` is empty. There is no automated pipeline yet, so
 "deploy through the pipeline" is a decision somebody has to make, not a step
 somebody follows.
 
+### 2026-09-20 18:40 — B6 — a fifth thing already broken in `web/`, and the scope change kills two of them
+
+`AlertBanner.tsx:20` is a second site of the same fabricated measurement as
+`PlatformPanel`: it renders `WhatsApp sent in {minutesAndSeconds(secondsToWhatsapp)}`
+from the same `TIME_TO_WHATSAPP_SECONDS = 107` constant. The entry above names
+only the panel, so I am recording the second site here.
+
+The scope change resolves it without a ruling from anyone. WhatsApp is out of
+the MVP, so there is no WhatsApp send to time and the claim comes out of **both**
+components along with the constant. Nothing replaces it: the number I will
+render instead is detection-to-on-screen, measured in the browser against
+`alerts.created_at`, and only for alerts that arrive while the page is open. An
+alert already on screen at first load has no measurable arrival, so it prints no
+number rather than a plausible one.
+
+### 2026-09-20 18:40 — B6 — the BFF computes no number, and four consequences of that
+
+`bff/` exists so the browser has one backend, not so it has a second author of
+the truth. Unwrapping the A2A envelope is transport. Renaming a key, flattening
+a nested object, rounding a float or summing a list are all the same defect, so
+none of them happen here. Four things follow that a reader would otherwise
+mistake for omissions:
+
+1. **`/mentions` and `/alerts` return bare arrays**, not `MentionBatch` and
+   `AlertSet`. Those envelopes carry `credits_used`, `cache_hits`, `truncated`
+   and `rules_evaluated`, which a Postgres read cannot know. Filling them in
+   would be inventing numbers. `/pulse` is the only route with an `errors`
+   array, because a partial answer only exists where several sources combine.
+2. **`Topic.top_examples` comes back empty** and `ReplyDraft.requires_human_approval`
+   comes back as a constant `true`. "At most 3 mentions chosen by engagement" is
+   `bp-clusterer`'s rule with no column behind it, and `requires_human_approval`
+   has neither a column nor a Go struct field, only an unconditional
+   `MarshalJSON`. The BFF picking three examples would be the BFF inventing an
+   agent's output.
+3. **A NULL column becomes an absent key, not a `null` and never a zero.**
+   `omitempty` means Go emits no key at all. `rating: 0` is a real one-star
+   average and `credits_used: 0` is a run that has not spent yet, so those
+   survive.
+4. **A populated `errors` array is never an HTTP 500.** `/pulse` gathers seven
+   slots independently: one failed query returns the other six with the failure
+   named, at a 200. A 500 would blank a dashboard that still has a crisis alert
+   to show.
+
+The pool is opened with `default_transaction_read_only=on`, so a write added to
+`db.ts` later fails at the Postgres server rather than in review. The agents own
+every write.
+
+`bff/src/contracts.ts` duplicates `web/lib/types.ts` deliberately: two Docker
+build contexts and two `rootDir`s mean neither can import the other.
+`web/scripts/checkTypesParity.mjs` checks both against `models.go`, which makes
+the duplication build-enforced instead of review-enforced.
+
 ---
 
 ## B7 now owns `main`. Nobody else commits there.
@@ -400,5 +497,5 @@ brackets and is replaced, never quietly promoted.
 | Cost per brand-day, warm cache | — | `go run ./eval/cost` | B3 |
 | Agent container image size | — | `docker images` after build | B5 |
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
-| Time from mention to alert on screen | — | `demo/run_demo.sh` timing output | B4 |
+| Time from mention to alert on screen | — | measured in the browser, `alerts.created_at` to the alert feed's receipt, per the scope change | B6 |
 | Nasiko PR | — | link | B5 |
