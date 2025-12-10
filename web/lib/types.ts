@@ -155,12 +155,38 @@ export interface Topic {
   mention_ids: string[];
 }
 
+export interface ShareOfVoice {
+  brand_id: string;
+  window_start: string;
+  window_end: string;
+  brand_share: number;
+  competitor_shares: Record<string, number>;
+  // Nested, not flat: Go has map[Source]map[string]float64, so this is one inner
+  // map of competitor-to-share per source.
+  by_source: Partial<Record<Source, Record<string, number>>>;
+  total_mentions: number;
+}
+
 export interface BriefNumbers {
   mentions: number;
   mentions_delta_pct: number;
   sentiment_avg: number;
   negative_share: number;
   share_of_voice: number;
+}
+
+export interface DailyBrief {
+  brand_id: string;
+  period_start: string;
+  period_end: string;
+  headline: string;
+  numbers: BriefNumbers;
+  top_topics: Topic[];
+  alerts: Alert[];
+  competitor_watch: string[];
+  suggested_actions: string[];
+  markdown: string;
+  whatsapp_short: string;
 }
 
 export interface RunRecord {

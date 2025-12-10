@@ -30,6 +30,7 @@ what Nasiko, Anakin and DronaHQ each did.
 | `lib/types.ts` | The wire format, mirrored from `internal/models/models.go`. |
 | `lib/demoData.ts` | Synthetic demo data. The only thing live mode replaces. |
 | `lib/format.ts` | Display formatting. No business rules. |
+| `scripts/checkTypesParity.mjs` | Fails the build when a mirror drifts from `models.go`. |
 | `components/*.tsx` | One component per panel, each named for what it renders. |
 
 ## Invariants and gotchas
@@ -39,6 +40,12 @@ what Nasiko, Anakin and DronaHQ each did.
   agent artifacts through unreshaped. When `models.go` changes, this file
   changes in the same commit or the dashboard renders `undefined` silently.
   TypeScript will not catch it: the data arrives as JSON at runtime.
+  `npm run check:types` does, and `npm run build` runs it first. It compares
+  field names and optionality against the `json` tags, in both directions, and
+  it also checks `bff/src/contracts.ts`, which is the same mirror kept
+  deliberately duplicated. An `omitempty` tag means the TS field is `?`. There
+  is exactly one permitted divergence, `ReplyDraft.requires_human_approval`,
+  and it is a constant in the script rather than an allowlist.
 - **Going live is one file.** Swap the `lib/demoData` imports in `app/page.tsx`
   for fetches against the BFF. Nothing else changes, which is why no component
   computes a derived number.
