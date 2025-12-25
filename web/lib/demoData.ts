@@ -1,10 +1,15 @@
 // Demo data for the dashboard shell, shaped exactly like the agent artifacts.
 //
-// Everything here is synthetic and the UI labels it as such, because the repo
-// rule is that no source is ever faked silently. The brand is fictional on
-// purpose: a mockup must not put invented complaints next to a real company's
-// name. Swapping this file for a fetch against the Fastify BFF is the whole of
-// the "make it live" step.
+// Nothing under app/ imports this any more. The dashboard reads the BFF through
+// lib/pulse.ts, and a fallback to this file when the backend is down is
+// forbidden: a dashboard that quietly swaps in synthetic numbers is the failure
+// this product is pitched against. It stays in the tree as a shaped example for
+// anyone building a component without a running backend, which is the only
+// reason a `grep -r demoData app/` returning nothing is the invariant rather
+// than deleting the file.
+//
+// Everything here is synthetic. The brand is fictional on purpose: a mockup must
+// not put invented complaints next to a real company's name.
 //
 // This file must not import React or call anything.
 
@@ -205,6 +210,3 @@ export const RUN: RunRecord = {
   mentions_collected: NUMBERS.mentions,
   errors: [],
 };
-
-/** Time from the first negative mention to the WhatsApp send, in seconds. */
-export const TIME_TO_WHATSAPP_SECONDS = 107;

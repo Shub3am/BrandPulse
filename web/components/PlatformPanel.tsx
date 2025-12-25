@@ -8,7 +8,7 @@
 // which is why the agent count is absent: RunRecord does not carry it yet.
 
 import type { ReplyDraft, RunRecord } from "@/lib/types";
-import { durationBetween, minutesAndSeconds, rupees } from "@/lib/format";
+import { durationBetween, rupees } from "@/lib/format";
 
 interface PlatformCard {
   name: string;
@@ -17,7 +17,7 @@ interface PlatformCard {
   note?: string;
 }
 
-function buildCards(run: RunRecord, drafts: ReplyDraft[], secondsToWhatsapp: number): PlatformCard[] {
+function buildCards(run: RunRecord, drafts: ReplyDraft[]): PlatformCard[] {
   return [
     {
       name: "Nasiko",
@@ -42,29 +42,20 @@ function buildCards(run: RunRecord, drafts: ReplyDraft[], secondsToWhatsapp: num
     },
     {
       name: "DronaHQ",
-      blurb: "The founder never opens a dashboard at 2am.",
+      blurb: "Where a human reads the draft and decides.",
       rows: [
-        ["Alert to WhatsApp", minutesAndSeconds(secondsToWhatsapp)],
-        ["Channel", "WhatsApp Business"],
         ["Reply drafts queued", String(drafts.length)],
+        ["Awaiting approval", String(drafts.filter((draft) => draft.status === "draft").length)],
         ["Auto-posted", "0, by design"],
       ],
     },
   ];
 }
 
-export function PlatformPanel({
-  run,
-  drafts,
-  secondsToWhatsapp,
-}: {
-  run: RunRecord;
-  drafts: ReplyDraft[];
-  secondsToWhatsapp: number;
-}) {
+export function PlatformPanel({ run, drafts }: { run: RunRecord; drafts: ReplyDraft[] }) {
   return (
     <div className="platforms">
-      {buildCards(run, drafts, secondsToWhatsapp).map((card) => (
+      {buildCards(run, drafts).map((card) => (
         <div className="card platform" key={card.name}>
           <h4>
             <i className="dot" />
