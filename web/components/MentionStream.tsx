@@ -4,8 +4,23 @@
 // applied here. A second classifier in the browser could paint a red bar beside
 // a "neutral" pill, and would be a rule `nasiko observe` cannot see.
 
-import type { EnrichedMention, SentimentLabel } from "@/lib/types";
+import type { Engagement, EnrichedMention, SentimentLabel } from "@/lib/types";
 import { clockTime, humanLabel, SENTIMENT_COLOR } from "@/lib/format";
+
+/**
+ * The Go struct requires all four counts, but `mentions.engagement` is
+ * `JSONB DEFAULT '{}'` in Postgres, so a count can be absent on the wire. An
+ * absent count is not zero: printing "0 likes" for a row we never measured would
+ * be inventing a measurement, and printing "undefined likes" is just broken.
+ * Either way the part is dropped.
+ */
+function EngagementCounts({ engagement }: { engagement: Engagement }) {
+  const parts = [
+    Number.isFinite(engagement.likes) ? `${engagement.likes} likes` : null,
+    Number.isFinite(engagement.replies) ? `${engagement.replies} replies` : null,
+  ].filter((part) => part !== null);
+  return parts.length > 0 ? <span>{parts.join(" · ")}</span> : null;
+}
 
 function SentimentBar({ score, label }: { score: number; label: SentimentLabel }) {
   // Centre is neutral, so the bar grows left for negative and right for positive.
@@ -51,9 +66,7 @@ export function MentionStream({ items }: { items: EnrichedMention[] }) {
             <span>{enrichment.aspects.join(", ")}</span>
             {/* Component counts, not a total: "which engagement counts" is a
                 clusterer rule and lives in models.Engagement.Total. */}
-            <span>
-              {mention.engagement.likes} likes &middot; {mention.engagement.replies} replies
-            </span>
+            <EngagementCounts engagement={mention.engagement} />
           </div>
         </article>
       ))}

@@ -32,6 +32,8 @@ than rendering one server-side snapshot.
 | `app/page.tsx` | The dashboard. Awaits the BFF and composes the panels, owns no logic. |
 | `app/layout.tsx` | Document shell and top bar. Holds no product state. |
 | `app/api/alerts/route.ts` | Proxies the alert poll so the browser never learns the BFF's URL. |
+| `app/loading.tsx` | Panel frames while the fetch is in flight. Holds no values. |
+| `app/error.tsx` | Says the backend is unreachable. Substitutes nothing. |
 | `lib/pulse.ts` | The BFF fetches. The only file here that knows the backend exists. |
 | `lib/types.ts` | The wire format, mirrored from `internal/models/models.go`. |
 | `lib/demoData.ts` | Synthetic sample artifacts. Nothing under `app/` imports it. |
@@ -64,6 +66,19 @@ than rendering one server-side snapshot.
   is inlined when the image is built, and the BFF's URL is only known at deploy
   time. That is why the live feed polls `app/api/alerts/route.ts` instead of the
   BFF directly. The route adds no field and filters nothing.
+- **An empty panel is a sentence, never a blank box or a zero.** Every panel has
+  a written empty state naming what is missing and which agent fills it. Zero
+  alerts is a success state and says so, with the window it has been watching.
+  Partial data renders, with `RunNotice` above it printing what the payload said
+  went wrong. Nothing is ever stood in for: no cached figure, no last-known
+  number and no placeholder digit, including in `loading.tsx`.
+- **`RunNotice` reports, it does not judge.** It prints `status`,
+  `sources_skipped`, `degraded_reason` and both `errors` arrays as they arrived.
+  It does not map a status to a severity and its CSS is deliberately neutral,
+  because "which of these is bad" is `bp-detector`'s call. It prints a line for a
+  healthy run too: a notice that appears only on failure teaches a reader to
+  treat its absence as proof, and absence is also what a missing field looks
+  like.
 - **Only the browser may date an alert's arrival.** `AlertFeed` records its own
   receipt timestamp when a poll brings in an alert it has not seen, and
   `AlertBanner` prints a duration only when that receipt exists and is later

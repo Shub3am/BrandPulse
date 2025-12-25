@@ -410,6 +410,54 @@ a { color: inherit; text-decoration: none; }
   font-size: 13.5px;
 }
 
+/* --- run notice --------------------------------------------------------- */
+
+/* Deliberately neutral. Colouring this box by run status would make the CSS
+   decide which statuses are bad, which is bp-detector's call, not the UI's. */
+.notice {
+  margin-top: 28px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.notice p { margin: 0; }
+.notice p + p, .notice ul { margin-top: 7px; }
+.notice b { color: var(--text); font-weight: 600; }
+
+.notice-errors { margin: 7px 0 0; padding-left: 18px; }
+.notice-errors li { font-size: 12.5px; color: var(--text-faint); }
+
+/* --- loading frames ----------------------------------------------------- */
+
+/* A bar, never a digit: a greyed "0" still reads as a measurement that came
+   back zero. The pulse is what makes it legible as "waiting". */
+.skeleton {
+  display: block;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-label { width: 45%; }
+.skeleton-value { width: 62%; height: 22px; margin-top: 10px; }
+.skeleton-line { width: 100%; margin: 9px 0; }
+.skeleton-line:last-child { width: 72%; }
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
 .footnote {
   margin-top: 40px;
   padding-top: 18px;

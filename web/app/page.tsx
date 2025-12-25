@@ -14,6 +14,7 @@ import { AlertFeed } from "@/components/AlertFeed";
 import { DraftCard } from "@/components/DraftCard";
 import { MentionStream } from "@/components/MentionStream";
 import { PlatformPanel } from "@/components/PlatformPanel";
+import { RunNotice } from "@/components/RunNotice";
 import { StatRow } from "@/components/StatRow";
 import { TopicList } from "@/components/TopicList";
 import { fetchPulse } from "@/lib/pulse";
@@ -51,6 +52,10 @@ export default async function PulsePage() {
         </div>
       </section>
 
+      {/* Above the numbers, not below them: a partial run has to be readable
+          before the figures it produced are. */}
+      <RunNotice run={run} errors={pulse.errors} />
+
       {brief ? (
         <StatRow numbers={brief.numbers} alerts={pulse.alerts} />
       ) : (
@@ -75,7 +80,15 @@ export default async function PulsePage() {
               <h2>Mention stream</h2>
               <p>Collected through Anakin, classified once, cached by content hash.</p>
             </div>
-            <MentionStream items={pulse.mentions} />
+            {pulse.mentions.length > 0 ? (
+              <MentionStream items={pulse.mentions} />
+            ) : (
+              <p className="empty">
+                No mentions stored for {pulse.brand_id}. Either nothing has matched this
+                brand&rsquo;s keywords yet or no collector has run, and the run report below
+                says which.
+              </p>
+            )}
           </div>
           <div>
             <div className="section-head">
@@ -99,7 +112,14 @@ export default async function PulsePage() {
           <h2>What people are talking about</h2>
           <p>TF-IDF clusters over the last 24 hours.</p>
         </div>
-        <TopicList topics={pulse.topics} />
+        {pulse.topics.length > 0 ? (
+          <TopicList topics={pulse.topics} />
+        ) : (
+          <p className="empty">
+            No topics for the last 24 hours. bp-clusterer needs enough mentions in one
+            window to form a cluster, so a quiet day produces none.
+          </p>
+        )}
       </section>
 
       <section className="section">
