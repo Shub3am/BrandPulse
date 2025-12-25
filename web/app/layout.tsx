@@ -1,4 +1,10 @@
 // The document shell and the top bar. Holds no product state.
+//
+// The "demo data" pill used to live here, where it was a hardcoded warning that
+// could not be wrong in the reassuring direction and could not be right in the
+// other. A layout receives no data, so it cannot know what the data is. The pill
+// is now components/DataSourceBadge.tsx, rendered from the page that did the
+// fetch.
 
 import type { Metadata } from "next";
 import "./globals.css";
@@ -27,10 +33,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
             <div className="spacer" />
-            <span className="pill">
-              <i className="dot" style={{ background: "var(--warn)" }} />
-              demo data
-            </span>
             <button className="btn btn-primary">Run now</button>
           </div>
         </header>

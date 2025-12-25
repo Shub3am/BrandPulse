@@ -30,7 +30,8 @@ than rendering one server-side snapshot.
 | Path | Job |
 |---|---|
 | `app/page.tsx` | The dashboard. Awaits the BFF and composes the panels, owns no logic. |
-| `app/layout.tsx` | Document shell and top bar. Holds no product state. |
+| `app/layout.tsx` | Document shell and top bar. Holds no product state and no label. |
+| `components/DataSourceBadge.tsx` | Says what the data is, derived from the payload. |
 | `app/api/alerts/route.ts` | Proxies the alert poll so the browser never learns the BFF's URL. |
 | `app/loading.tsx` | Panel frames while the fetch is in flight. Holds no values. |
 | `app/error.tsx` | Says the backend is unreachable. Substitutes nothing. |
@@ -85,11 +86,16 @@ than rendering one server-side snapshot.
   than `created_at`. An alert already on screen at first paint carries no
   figure, because nothing measured it. There is no field on `RunRecord` for
   time-to-alert and the UI must not invent one.
-- **Synthetic data is labelled in the UI.** The "demo data" pill in the top bar
-  is load-bearing, not decoration: the repo rule is that no figure is ever
-  presented as real when it is not. The page-wide footnote is gone, because with
-  live fetches "every figure here is synthetic" became a false sentence, and a
-  false honesty label is worse than none.
+- **Synthetic data is labelled from the payload, never from a flag.**
+  `components/DataSourceBadge.tsx` derives both the pill and the footnote from
+  two facts: which backend answered (`Fetched.answeredBy`) and how many rendered
+  mentions carry `raw.synthetic === true`, which is what `demo/inject_crisis`
+  marks. Live data gets a "live via bff" pill and no footnote at all, because a
+  standing disclaimer is a label readers learn to stop seeing. There is no
+  `IS_DEMO` constant and there must not be one. The badge never claims the brand
+  is fictional: nothing on the wire says so, and that is a different claim from
+  "a synthetic mention was injected into a real run", so the two never share a
+  sentence.
 - **Tokens only.** Components reference CSS custom properties from
   `app/globals.css`, never raw hex, so a re-theme is one file.
 - Next reconfigures `tsconfig.json` on build (`jsx` and `include`). That edit is

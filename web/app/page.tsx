@@ -11,6 +11,7 @@
 // invariant is enforced by grep, and grep cannot tell a comment from an import.
 
 import { AlertFeed } from "@/components/AlertFeed";
+import { DataSourceBadge, DataSourceFootnote } from "@/components/DataSourceBadge";
 import { DraftCard } from "@/components/DraftCard";
 import { MentionStream } from "@/components/MentionStream";
 import { PlatformPanel } from "@/components/PlatformPanel";
@@ -27,7 +28,7 @@ const BRAND_ID = process.env.BRAND_ID ?? "lumeo";
 export const dynamic = "force-dynamic";
 
 export default async function PulsePage() {
-  const { data: pulse } = await fetchPulse(BRAND_ID);
+  const { answeredBy, data: pulse } = await fetchPulse(BRAND_ID);
   const { profile, brief, run, drafts } = pulse;
   const draft = drafts[0];
 
@@ -45,6 +46,7 @@ export default async function PulsePage() {
           the run that found it writes the alert, with a reply already drafted in your voice.
         </p>
         <div className="hero-meta">
+          <DataSourceBadge answeredBy={answeredBy} mentions={pulse.mentions} />
           <span className="pill">{profile ? profile.name : pulse.brand_id}</span>
           {profile && <span className="pill">{profile.sources.length} sources</span>}
           {profile && <span className="pill">{profile.competitors.length} competitors tracked</span>}
@@ -136,6 +138,8 @@ export default async function PulsePage() {
           </p>
         )}
       </section>
+
+      <DataSourceFootnote answeredBy={answeredBy} mentions={pulse.mentions} />
     </>
   );
 }
