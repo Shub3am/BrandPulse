@@ -31,6 +31,7 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B6 | B7 | `track/b6-web` merged into `main`. `bff/` is a new top-level module and `web/` stops importing `demoData`, so nothing downstream of me is real until that lands. Merge order puts me after B4. | open |
+| B6 (Task 6) | **you**, then B7 | A ruling on `.github/workflows/web.yml`. Both images build today (commands and context gotcha in the entry below), so the pipeline is the only thing left. My brief says this file "is not B6's to assume" and `PLAN.md` gives `.github/` to B7, so I built the images and stopped rather than writing it. This is the same ruling B5 is waiting on two rows up: either we get a pipeline in Phase 4 or we agree the hackathon deploys by CLI and say so out loud. My recommendation is a build-and-check-only `web.yml` (runs `npm run check:types` and both `docker build`s, no deploy step, no secrets), because it costs nothing, needs no hosting target and makes a type-mirror drift fail CI, which is the entire reason the checker exists. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 
 In Go a missing package is a compile error for everyone downstream, not a
@@ -459,6 +460,50 @@ every write.
 build contexts and two `rootDir`s mean neither can import the other.
 `web/scripts/checkTypesParity.mjs` checks both against `models.go`, which makes
 the duplication build-enforced instead of review-enforced.
+
+### 2026-09-20 — B6 — the web image builds from the repo root, and the two env vars a deployer has to set
+
+Whoever writes the pipeline needs three facts about these images, because two of
+them are not guessable from the Dockerfiles' locations.
+
+**`web/Dockerfile`'s build context is the repo root, not `web/`.**
+
+```bash
+docker build -f web/Dockerfile -t brandpulse-web .   # note the trailing dot
+docker build -t brandpulse-bff bff/                  # bff/ is the ordinary case
+```
+
+`npm run build` in `web/` runs `scripts/checkTypesParity.mjs` first, and that
+script reads `internal/models/models.go` and `bff/src/contracts.ts` to fail the
+build when a type mirror has drifted from the Go wire format. Those two files are
+outside `web/`. A `web/`-only context still builds a working image, which is the
+problem: it builds it with the only drift check in the repo silently skipped, so
+the failure mode is a dashboard rendering `undefined` rather than a red build.
+
+**The runtime env vars, and the ones that must never be set.** `web/` takes
+`BFF_BASE_URL` and optionally `BRAND_ID`. That is the whole list. `BFF_BASE_URL`
+has no `NEXT_PUBLIC_` prefix on purpose: a `NEXT_PUBLIC_` variable is inlined
+into the browser bundle when the image is built, which would both pin one BFF URL
+per image and publish it to every visitor. It is read per request, server-side,
+by `lib/pulse.ts`, which is why the alert feed polls `app/api/alerts/route.ts`
+instead of the BFF directly.
+
+`bff/` takes `DASHBOARD_ORIGIN`, `ORCHESTRATOR_URL` and `DATABASE_URL`, all
+required, none committed and none baked into the image.
+
+**B5: the deployed `bp-orchestrator` URL goes to the BFF, not to the web image,
+and it goes in as an env var at deploy time.** Post it here when `nasiko deploy`
+can authenticate and I will not need a rebuild to pick it up. `DASHBOARD_ORIGIN`
+has to be the exact single origin the dashboard is served from: CORS allows one
+origin, never a list and never `*`, because widening it lets any page a customer
+has open read their mentions through their own browser.
+
+I verified the browser bundle carries none of it. Running `brandpulse-web` against
+a live BFF and grepping the served HTML plus all nine `/_next/static` assets for
+`postgresql://`, the DB password, `:5434`, `:9099`, `host.docker.internal` and
+`localhost:8080` exits 1. The only hit anywhere is the literal string
+`BFF_BASE_URL` in `app/error.tsx`, which is the variable's *name* printed in an
+error message telling an operator what to check, not its value.
 
 ---
 

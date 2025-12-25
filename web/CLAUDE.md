@@ -41,6 +41,7 @@ than rendering one server-side snapshot.
 | `lib/format.ts` | Display formatting. No business rules. |
 | `scripts/checkTypesParity.mjs` | Fails the build when a mirror drifts from `models.go`. |
 | `components/*.tsx` | One component per panel, each named for what it renders. |
+| `Dockerfile` | The runtime image. Its build context is the repo root, see below. |
 
 ## Invariants and gotchas
 
@@ -96,6 +97,23 @@ than rendering one server-side snapshot.
   is fictional: nothing on the wire says so, and that is a different claim from
   "a synthetic mention was injected into a real run", so the two never share a
   sentence.
+- **`Dockerfile`'s build context is the repo root, not this directory.**
+  `docker build -f web/Dockerfile -t brandpulse-web .` The image has to contain
+  `internal/models/models.go` and `bff/src/contracts.ts` at build time because
+  `check:types` reads them, and a `web/`-only context does not fail: it builds a
+  working image with the drift check skipped, which is the one outcome the
+  checker exists to prevent. `bff/Dockerfile` is the ordinary `bff/` context and
+  says so, so the asymmetry is deliberate rather than an oversight.
+- **`next.config.mjs` pins `outputFileTracingRoot`, and that is load-bearing.**
+  `output: "standalone"` puts `server.js` at
+  `.next/standalone/<project dir relative to the tracing root>/server.js`, and
+  Next infers that root by walking up for a lockfile or a `workspaces`
+  `package.json`. There is none above `web/` today, so the entrypoint is
+  `.next/standalone/server.js` and `CMD` matches. The day anyone adds a
+  `package.json` at the repo root the inferred root moves and the entrypoint
+  silently becomes `.next/standalone/web/server.js`, so it is pinned to this
+  directory instead of inferred. `.next/static` is not part of the trace and is
+  copied separately; there is no `public/` here, so nothing is copied for it.
 - **Tokens only.** Components reference CSS custom properties from
   `app/globals.css`, never raw hex, so a re-theme is one file.
 - Next reconfigures `tsconfig.json` on build (`jsx` and `include`). That edit is
@@ -112,4 +130,11 @@ npm install
 export BFF_BASE_URL=http://localhost:8080   # no page renders without this
 npm run dev     # http://localhost:3000
 npm run build   # runs check:types, then typechecks
+
+# The image. Context is the repo root, hence -f and the trailing dot.
+docker build -f web/Dockerfile -t brandpulse-web ..
+docker run -p 3000:3000 -e BFF_BASE_URL=http://host.docker.internal:8080 brandpulse-web
 ```
+
+`BFF_BASE_URL` and `BRAND_ID` are the only variables this module reads. There is
+no `DATABASE_URL` and no agent URL here, in the image or in the bundle.
