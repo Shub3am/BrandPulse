@@ -602,7 +602,9 @@ intended: do not "fix" one and do not add a field to close one.
 | `Alert.SampleMentions` | `alerts.sample_mention_ids` | objects on the wire, ids in storage | DronaHQ renders the alert without a second fetch; Postgres does not duplicate mention rows. |
 | `Topic.MentionIDs`, `.TopExamples` | `topic_mentions` join table | slice on the wire, rows in storage | The join is queryable; the artifact is self-contained. |
 | `BrandProfile.Name`, `.Website` | on `brands`, not `brand_profiles` | denormalised onto the wire | A profile artifact must be readable alone. Profiles are versioned, brand identity is not. |
-| every model | `created_at`, `collected_at`, `confirmed_at` | storage-only | Set by Postgres defaults. No agent writes them. |
+| no struct field | `brand_profiles.created_at`, `mention_enrichment.created_at`, `topics.created_at`, `reply_drafts.created_at`, `briefs.created_at` | storage-only | Set by the Postgres default. No agent writes them. |
+| no struct field | `brand_profiles.confirmed_at`, `mentions.collected_at` | storage-only | Same: written by storage, meaningless on the wire. |
+| `Alert.CreatedAt` | `alerts.created_at` | **not** storage-only, the pair matches | An alert is read by a human minutes after it fires, so when it fired is part of the artifact. This row exists because the one above it used to say "every model" and the code says otherwise. |
 | `ReplyDraft` requires_human_approval | no column, no struct field | constant `true`, emitted by `MarshalJSON` | It is an invariant, not state. Storing it would imply it could be false. |
 
 Everything else must match, and `internal/models/parity_test.go` (B1 Task 0)
