@@ -2,7 +2,10 @@ module brandpulse
 
 go 1.27
 
-require github.com/jackc/pgx/v5 v5.11.0
+require (
+	github.com/jackc/pgx/v5 v5.11.0
+	github.com/oklog/ulid/v2 v2.1.2
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
