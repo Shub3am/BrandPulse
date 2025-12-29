@@ -32,6 +32,8 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~No deploy pipeline~~ | **closed 2026-09-20**, `ci.yml` and `deploy.yml` exist, see below |
 | ~~B5, B6~~ | ~~you~~ | ~~No hosting target for `web/` and `bff/`~~ | **closed 2026-09-20**, ruled: localhost for the demo, see below |
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
+| ~~B6~~ | ~~B7~~ | ~~`track/b6-web` into `main`, `bff/` is new and `web/` drops `demoData`~~ | **closed 2026-09-20**, merged, see below |
+| ~~B6 (Task 6)~~ | ~~you~~ | ~~A ruling on `.github/workflows/web.yml`~~ | **closed 2026-09-20**, `ci.yml` has a `web` job doing exactly the build-and-check-only run B6 recommended |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -481,6 +483,49 @@ reach it.
 
 Still unverified and still needing the cluster: `nasiko push`, `nasiko deploy`
 and everything after them.
+### 2026-09-20 18:40 — B6 — the A2A v1.0 wire format, verified. B4 and B5 need this.
+
+The BFF calls `bp-orchestrator` over A2A, so I had to pin the actual v1.0 wire
+format rather than the 0.x shape most blog posts show. Verified against the
+normative sources, not from memory: the `a2aproject/A2A` specification's
+`a2a.proto`, `a2a-go` v2.5.0 `a2a/core.go`, and its `internal/jsonrpc`.
+
+Three differences from 0.x, and **every one of them fails silently** if guessed:
+
+1. The method is `SendMessage`, not `message/send`.
+2. Role and state are **enum names**: `"ROLE_USER"`, `"TASK_STATE_COMPLETED"`,
+   `"TASK_STATE_FAILED"`. Not `"user"` and not `"completed"`.
+3. `Part` has **no `kind` discriminator**. It is a flattened oneof, so a JSON
+   part is `{"data": {...}, "mediaType": "application/json"}` and adding
+   `"kind": "data"` makes the peer reject the message.
+
+The version travels as an HTTP header, `A2A-Version: 1.0`, not in the body.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{
+  "messageId":"<uuid>","role":"ROLE_USER",
+  "parts":[{"data":{"brand_id":"lumeo","trigger":"on_demand"},
+            "mediaType":"application/json"}]}}}
+```
+
+The artifact comes back at `result.task.artifacts[0].parts[0].data`.
+
+Verified by `bff/src/orchestrator.test.ts`, which runs a real `node:http` stub
+agent rather than a mocked `fetch`, because a mock would agree with whatever I
+believed. Nine tests, no network, no credits.
+
+### 2026-09-20 18:40 — B6 — `ShareOfVoice` has no producer and nowhere to live
+
+`internal/models/models.go` defines `ShareOfVoice` (with a nested
+`BySource map[Source]map[string]float64`), `001_init.sql` has no
+`share_of_voice` table, `RunRecord` has no SOV field, and no agent brief names
+it as an artifact. So the BFF has nothing to read. `GET /api/brands/:id/pulse`
+returns `share_of_voice: null` and the dashboard renders
+`brief.numbers.share_of_voice` out of `briefs.payload` instead, which is the
+only place the figure actually exists. This is not a blocker for me; flagging it
+so nobody later assumes the BFF dropped it.
 
 ---
 
@@ -674,6 +719,102 @@ Also: `.github/workflows/` is empty. There is no automated pipeline yet, so
 "deploy through the pipeline" is a decision somebody has to make, not a step
 somebody follows.
 
+### 2026-09-20 18:40 — B6 — a fifth thing already broken in `web/`, and the scope change kills two of them
+
+`AlertBanner.tsx:20` is a second site of the same fabricated measurement as
+`PlatformPanel`: it renders `WhatsApp sent in {minutesAndSeconds(secondsToWhatsapp)}`
+from the same `TIME_TO_WHATSAPP_SECONDS = 107` constant. The entry above names
+only the panel, so I am recording the second site here.
+
+The scope change resolves it without a ruling from anyone. WhatsApp is out of
+the MVP, so there is no WhatsApp send to time and the claim comes out of **both**
+components along with the constant. Nothing replaces it: the number I will
+render instead is detection-to-on-screen, measured in the browser against
+`alerts.created_at`, and only for alerts that arrive while the page is open. An
+alert already on screen at first load has no measurable arrival, so it prints no
+number rather than a plausible one.
+
+### 2026-09-20 18:40 — B6 — the BFF computes no number, and four consequences of that
+
+`bff/` exists so the browser has one backend, not so it has a second author of
+the truth. Unwrapping the A2A envelope is transport. Renaming a key, flattening
+a nested object, rounding a float or summing a list are all the same defect, so
+none of them happen here. Four things follow that a reader would otherwise
+mistake for omissions:
+
+1. **`/mentions` and `/alerts` return bare arrays**, not `MentionBatch` and
+   `AlertSet`. Those envelopes carry `credits_used`, `cache_hits`, `truncated`
+   and `rules_evaluated`, which a Postgres read cannot know. Filling them in
+   would be inventing numbers. `/pulse` is the only route with an `errors`
+   array, because a partial answer only exists where several sources combine.
+2. **`Topic.top_examples` comes back empty** and `ReplyDraft.requires_human_approval`
+   comes back as a constant `true`. "At most 3 mentions chosen by engagement" is
+   `bp-clusterer`'s rule with no column behind it, and `requires_human_approval`
+   has neither a column nor a Go struct field, only an unconditional
+   `MarshalJSON`. The BFF picking three examples would be the BFF inventing an
+   agent's output.
+3. **A NULL column becomes an absent key, not a `null` and never a zero.**
+   `omitempty` means Go emits no key at all. `rating: 0` is a real one-star
+   average and `credits_used: 0` is a run that has not spent yet, so those
+   survive.
+4. **A populated `errors` array is never an HTTP 500.** `/pulse` gathers seven
+   slots independently: one failed query returns the other six with the failure
+   named, at a 200. A 500 would blank a dashboard that still has a crisis alert
+   to show.
+
+The pool is opened with `default_transaction_read_only=on`, so a write added to
+`db.ts` later fails at the Postgres server rather than in review. The agents own
+every write.
+
+`bff/src/contracts.ts` duplicates `web/lib/types.ts` deliberately: two Docker
+build contexts and two `rootDir`s mean neither can import the other.
+`web/scripts/checkTypesParity.mjs` checks both against `models.go`, which makes
+the duplication build-enforced instead of review-enforced.
+
+### 2026-09-20 — B6 — the web image builds from the repo root, and the two env vars a deployer has to set
+
+Whoever writes the pipeline needs three facts about these images, because two of
+them are not guessable from the Dockerfiles' locations.
+
+**`web/Dockerfile`'s build context is the repo root, not `web/`.**
+
+```bash
+docker build -f web/Dockerfile -t brandpulse-web .   # note the trailing dot
+docker build -t brandpulse-bff bff/                  # bff/ is the ordinary case
+```
+
+`npm run build` in `web/` runs `scripts/checkTypesParity.mjs` first, and that
+script reads `internal/models/models.go` and `bff/src/contracts.ts` to fail the
+build when a type mirror has drifted from the Go wire format. Those two files are
+outside `web/`. A `web/`-only context still builds a working image, which is the
+problem: it builds it with the only drift check in the repo silently skipped, so
+the failure mode is a dashboard rendering `undefined` rather than a red build.
+
+**The runtime env vars, and the ones that must never be set.** `web/` takes
+`BFF_BASE_URL` and optionally `BRAND_ID`. That is the whole list. `BFF_BASE_URL`
+has no `NEXT_PUBLIC_` prefix on purpose: a `NEXT_PUBLIC_` variable is inlined
+into the browser bundle when the image is built, which would both pin one BFF URL
+per image and publish it to every visitor. It is read per request, server-side,
+by `lib/pulse.ts`, which is why the alert feed polls `app/api/alerts/route.ts`
+instead of the BFF directly.
+
+`bff/` takes `DASHBOARD_ORIGIN`, `ORCHESTRATOR_URL` and `DATABASE_URL`, all
+required, none committed and none baked into the image.
+
+**B5: the deployed `bp-orchestrator` URL goes to the BFF, not to the web image,
+and it goes in as an env var at deploy time.** Post it here when `nasiko deploy`
+can authenticate and I will not need a rebuild to pick it up. `DASHBOARD_ORIGIN`
+has to be the exact single origin the dashboard is served from: CORS allows one
+origin, never a list and never `*`, because widening it lets any page a customer
+has open read their mentions through their own browser.
+
+I verified the browser bundle carries none of it. Running `brandpulse-web` against
+a live BFF and grepping the served HTML plus all nine `/_next/static` assets for
+`postgresql://`, the DB password, `:5434`, `:9099`, `host.docker.internal` and
+`localhost:8080` exits 1. The only hit anywhere is the literal string
+`BFF_BASE_URL` in `app/error.tsx`, which is the variable's *name* printed in an
+error message telling an operator what to check, not its value.
+
 ---
 
 ## `main` has one writer at a time, and B7 takes it last
@@ -719,5 +860,5 @@ brackets and is replaced, never quietly promoted.
 | Cost per brand-day, warm cache | — | `go run ./eval/cost` | B3 |
 | Agent container image size | — | `docker images` after build | B5 |
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
-| Time from mention to alert on screen | — | `demo/run_demo.sh` timing output | B4 |
+| Time from mention to alert on screen | — | measured in the browser, `alerts.created_at` to the alert feed's receipt, per the scope change | B6 |
 | Nasiko PR | — | link | B5 |

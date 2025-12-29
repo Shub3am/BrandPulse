@@ -28,19 +28,25 @@ export function TopicList({ topics }: { topics: Topic[] }) {
             <span className="pill push-right">{topic.size}</span>
           </div>
           <p>{topic.summary}</p>
-          <div className="mix">
-            {MIX_ORDER.map((label) => {
-              const count = topic.sentiment_mix[label] ?? 0;
-              if (count === 0) return null;
-              return (
-                <i
-                  key={label}
-                  title={`${label}: ${count}`}
-                  style={{ width: `${(count / topic.size) * 100}%`, background: SENTIMENT_COLOR[label] }}
-                />
-              );
-            })}
-          </div>
+          {/* size is the denominator, so a zero leaves the bar off entirely.
+              Dividing by it printed `width: NaN%`, and summing sentiment_mix to
+              get a denominator instead would be this component deciding what the
+              cluster's size is, which is bp-clusterer's number. */}
+          {topic.size > 0 && (
+            <div className="mix">
+              {MIX_ORDER.map((label) => {
+                const count = topic.sentiment_mix[label] ?? 0;
+                if (count === 0) return null;
+                return (
+                  <i
+                    key={label}
+                    title={`${label}: ${count}`}
+                    style={{ width: `${(count / topic.size) * 100}%`, background: SENTIMENT_COLOR[label] }}
+                  />
+                );
+              })}
+            </div>
+          )}
         </section>
       ))}
     </div>

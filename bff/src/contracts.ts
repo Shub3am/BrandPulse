@@ -1,11 +1,14 @@
 // The wire format, mirrored from internal/models/models.go.
 //
-// These are the JSON shapes the agents emit. Field names here must match the
-// Go json tags exactly, because the Fastify BFF passes agent artifacts through
-// without reshaping them. When models.go changes, this file changes in the same
-// commit or the dashboard silently renders undefined.
+// This is the same mirror as web/lib/types.ts and it is kept identical on
+// purpose: the BFF needs the field names to rebuild artifacts out of Postgres
+// rows, and the browser needs them to read the JSON. Two copies are safe only
+// because web/scripts/checkTypesParity.mjs diffs both of them against
+// models.go and fails the build when either drifts.
 //
-// This file must not contain mock values, fetch calls or React.
+// This file must not hold an agent envelope type: those are specified in
+// CONTRACTS §2, have no Go source on this branch, and live in envelopes.ts.
+// It must not hold a derived field, a default or a mock value.
 
 export type Source =
   | "x" | "reddit" | "youtube" | "news" | "playstore"
@@ -101,7 +104,7 @@ export interface EnrichedMention {
   enrichment: Enrichment;
 }
 
-/** One statistical fact that fired an alert. Rendered verbatim, never summarised. */
+/** One statistical fact that fired an alert. Forwarded verbatim, never summarised. */
 export interface AlertEvidence {
   metric: string;
   value: number;
@@ -136,7 +139,8 @@ export interface ReplyDraft {
   /**
    * Always true. The Go type has no such field: MarshalJSON emits it
    * unconditionally, so it is present on the wire and absent from the struct.
-   * That asymmetry is why ReplyDraft cannot be machine-translated from Go.
+   * There is no column for it either, so db.ts supplies the same constant
+   * rather than reading one.
    */
   requires_human_approval: boolean;
 }
@@ -161,8 +165,6 @@ export interface ShareOfVoice {
   window_end: string;
   brand_share: number;
   competitor_shares: Record<string, number>;
-  // Nested, not flat: Go has map[Source]map[string]float64, so this is one inner
-  // map of competitor-to-share per source.
   by_source: Partial<Record<Source, Record<string, number>>>;
   total_mentions: number;
 }

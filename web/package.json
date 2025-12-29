@@ -3,9 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "npm run check:types && next build",
     "start": "next start -p 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:types": "node scripts/checkTypesParity.mjs"
   },
   "dependencies": {
     "next": "^16.3.5",

@@ -1,0 +1,19 @@
+# Build context rules for web/Dockerfile, which is the one image built from the
+# repo root (bff/ has its own context and its own .dockerignore).
+#
+# This file does not decide what ends up in a layer: web/Dockerfile copies named
+# paths, never `.`, so the COPY lines are the control. This is about what crosses
+# into the build at all, which is why .env is the first entry that matters.
+
+.env
+.env.*
+
+.git
+.gitignore
+
+# Installed and generated trees. node_modules is reinstalled from the lockfile in
+# the image, and a host .next built on a different platform would be copied over
+# a fresh build for no reason.
+**/node_modules
+**/.next
+**/dist

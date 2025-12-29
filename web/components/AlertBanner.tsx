@@ -3,11 +3,17 @@
 // The evidence table is the point of this component. bp-detector is pure
 // statistics with no LLM, so the UI shows the observed value against the
 // constant it was compared with, rather than claiming an AI found a crisis.
+//
+// `receivedAt` is the browser's own timestamp for when this alert arrived, and
+// the only reason this component does arithmetic. It is absent for an alert that
+// was already on screen at first paint, and the pill is then absent too: nothing
+// measured this one, so nothing claims a figure for it.
 
 import type { Alert } from "@/lib/types";
-import { clockTime, humanLabel, minutesAndSeconds } from "@/lib/format";
+import { clockTime, durationBetween, humanLabel } from "@/lib/format";
 
-export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; secondsToWhatsapp: number }) {
+export function AlertBanner({ alert, receivedAt }: { alert: Alert; receivedAt?: string }) {
+  const timeToScreen = durationBetween(alert.created_at, receivedAt);
   return (
     <div className="alert">
       <div className="alert-head">
@@ -17,9 +23,7 @@ export function AlertBanner({ alert, secondsToWhatsapp }: { alert: Alert; second
         </span>
         <span className="pill">{humanLabel(alert.kind)}</span>
         <span className="pill">fired {clockTime(alert.created_at)} IST</span>
-        <span className="pill pill-accent">
-          WhatsApp sent in {minutesAndSeconds(secondsToWhatsapp)}
-        </span>
+        {timeToScreen && <span className="pill pill-accent">on screen in {timeToScreen}</span>}
       </div>
 
       <h3>{alert.title}</h3>
