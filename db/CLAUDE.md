@@ -27,6 +27,13 @@ before you wipe it. `db.Migrate` covers the deployed path, where no compose runs
 
 ## Invariants and gotchas
 
+- **The two schema paths do not mix, and `db.Migrate` fails loudly rather than
+  pretend otherwise.** A database seeded by the compose initdb mount has the
+  schema and no `schema_migrations` rows, so `db.Migrate` against your local
+  `brandpulse` database fails on `type "source" already exists`. That is the
+  intended behaviour: swallowing the conflict would hide a schema that has
+  genuinely diverged. `internal/db/db_test.go` therefore tests the runner in a
+  scratch database it creates and drops, and never touches yours.
 - **Migrations are additive after Phase 1.** A column rename breaks every track
   at once. New migration files only, numbered in order, never an edit to a file
   that has already been applied.

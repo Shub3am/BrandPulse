@@ -9,37 +9,69 @@
 // compose Postgres on host port 5433, not 5432, because another project
 // commonly holds 5432 and compose then refuses to start at all.
 //
-// STUB: signatures only, bodies panic. B1 Task 4 implements this.
+// # DATABASE_URL carries the password
+//
+// No error in this package includes the URL. A connection failure is the most
+// likely thing to be pasted into a chat window, and pgx does not redact it for
+// you.
 package db
 
 import (
 	"context"
-	"io/fs"
+	"errors"
+	"fmt"
+	"os"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	once     sync.Once
+	pool     *pgxpool.Pool
+	poolErr  error
+	poolOpen bool
 )
 
 // Pool returns the process-wide pool, built lazily from DATABASE_URL on first
 // call. Every later call returns the same pool.
 func Pool(ctx context.Context) (*pgxpool.Pool, error) {
-	panic("not implemented")
+	once.Do(func() {
+		pool, poolErr = open(ctx)
+		poolOpen = poolErr == nil
+	})
+	return pool, poolErr
 }
 
 // Close releases the pool. Safe to call when no pool was ever built.
+//
+// This is process shutdown, not a reset: a Pool call after Close returns the
+// closed pool, because the sync.Once has already fired. Agents call it from a
+// defer in main and nothing else calls it.
 func Close() {
-	panic("not implemented")
+	if poolOpen {
+		pool.Close()
+		poolOpen = false
+	}
 }
 
-// Migrate applies every *.sql file in src in filename order, recording each in
-// schema_migrations so a second run is a no-op.
-//
-// It takes an fs.FS rather than embedding the SQL because //go:embed cannot
-// reach outside its own package directory and db/ stays pure SQL. Callers pass
-// os.DirFS("db/migrations").
-//
-// Nothing runs this at agent boot. Locally the compose mount at
-// /docker-entrypoint-initdb.d applies the schema on an empty volume; this is
-// the deployed path, where there is no compose.
-func Migrate(ctx context.Context, src fs.FS) error {
-	panic("not implemented")
+func open(ctx context.Context) (*pgxpool.Pool, error) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		return nil, errors.New("db: DATABASE_URL is unset")
+	}
+
+	p, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("db: bad DATABASE_URL: %w", err)
+	}
+
+	// pgxpool.New does not connect, so without this a wrong host or password
+	// surfaces at the first query in the middle of a run rather than at
+	// startup.
+	if err := p.Ping(ctx); err != nil {
+		p.Close()
+		return nil, fmt.Errorf("db: cannot reach Postgres: %w", err)
+	}
+	return p, nil
 }
