@@ -194,28 +194,4 @@ func NewHTTPClient(cfg Config) (Client, error) {
 	panic("not implemented")
 }
 
-// Budget is a credit ceiling for one brand-day, backed by the summed
-// runs.credits_used so it survives a process restart.
-//
-// The running total is cached in memory behind a mutex: the orchestrator calls
-// collectors in parallel through errgroup, and an unguarded counter is how a
-// budget gets overspent.
-type Budget struct{}
-
-// NewBudget returns a budget for one brand-day. A ceiling of 0 means the
-// brand's own brands.daily_credit_budget applies.
-func NewBudget(pool *pgxpool.Pool, brandID string, day time.Time, ceiling int) *Budget {
-	panic("not implemented")
-}
-
-// Spend records n credits, returning an error wrapping ErrBudgetExceeded when
-// they would breach the ceiling. It re-reads the persisted total before
-// refusing, so a stale cache cannot block a run that has headroom.
-func (b *Budget) Spend(ctx context.Context, n int) error {
-	panic("not implemented")
-}
-
-// Remaining reports how many credits are left in the ceiling.
-func (b *Budget) Remaining(ctx context.Context) (int, error) {
-	panic("not implemented")
-}
+// Budget, NewBudget, Spend and Remaining are in budget.go.
