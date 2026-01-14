@@ -8,13 +8,23 @@
 //
 // It lives here, exported, so there is one implementation rather than the same
 // eight lines copied into six worktrees.
-//
-// STUB: signature only, body panics. B1 Task 12 implements this.
 package anakin
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
 
 // NoNetwork returns an *http.Client whose Transport fails every round trip.
 func NoNetwork() *http.Client {
-	panic("not implemented")
+	return &http.Client{Transport: noNetworkTransport{}}
+}
+
+type noNetworkTransport struct{}
+
+// RoundTrip names the URL that was attempted, because the useful half of this
+// failure is which call escaped the fixtures.
+func (noNetworkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("anakin: this client has no network, and something tried %s %s; tests run on fixtures",
+		req.Method, req.URL)
 }

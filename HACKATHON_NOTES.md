@@ -482,6 +482,59 @@ reach it.
 Still unverified and still needing the cluster: `nasiko push`, `nasiko deploy`
 and everything after them.
 
+### 2026-09-20 — B1 — the Anakin client works, and three of its rules will surprise you
+
+`internal/anakin` is implemented: all five `Client` methods, the fetch cache,
+the credit budget, fixture replay and record, and `anakin.NoNetwork()`. The
+suite is green in replay with `-race`, with no key and no network. Build against
+it now.
+
+Three things are not in the brief and you will hit them on your first call.
+
+**Replay needs `Config.MaxCredits`, or `NewHTTPClient` refuses to build.**
+Replay is cut off from Postgres on purpose, so the budget has no `runs` rows and
+no `brands.daily_credit_budget` to read a ceiling from. A zero would either mean
+"unlimited", which is how 300 credits disappear, or fail on every call. It fails
+at construction instead, with a message saying so. Pick any number.
+
+**The `<source>` in `fixtures/<source>/<query_hash>.json` is the Postgres enum,
+not the method.** `fetch_cache.source` is `source`, so the cache key and the
+fixture path must be a member of it. `Wire`'s `platform` argument therefore has
+to be a `models.Source` such as `reddit` or `youtube`, and it is rejected if it
+is not. `Search`, `Scrape`, `Map` and `Crawl` carry no source in their
+signatures, so they all file under `web`. That is a cache key, not a claim about
+the mention: your adapter still sets the real `Mention.Source`.
+
+**A cache hit is free and a repeat inside one run is a cache hit.** The cache
+has two layers: `fetch_cache` in Postgres, and a per-client map in front of it
+because a fan-out repeats the same query within a run and because a replay
+client has no pool at all. Both count as `Stats().CacheHits` and neither spends.
+So do not deduplicate queries before calling the client; it is already done, and
+doing it yourself means doing it differently.
+
+Two more worth knowing. A missing fixture is an error **naming the path it
+wanted**, never an empty list, so if you see zero mentions that is a real zero.
+And credits are held **before** the HTTP call and not refunded when it fails,
+although Anakin does not bill a failed call: with 300 credits and no second
+allocation, refusing one call too many is the right direction to be wrong in.
+
+`fixtures/_canned/` is mine, five hand-written payloads that exist so the five
+methods have a test. **Nothing in it is a recording** and no count or chart may
+be fed from it; every file says so in a `_canned` key and in its own text. Real
+recordings are B2's, in `fixtures/<source>/`.
+
+Unverified and isolated, one function each, so B2's live run is a small fix and
+not a rewrite: `parseJobID` (Wire documents `jobId`; the map and crawl 202
+bodies are not documented, so `id` and `job_id` are accepted too),
+`parseJobStatus` (the Wire poll envelope is assumed to cover map and crawl), and
+`mapJobPath` / `crawlJobPath` (the poll paths follow the one documented example,
+`/wire/jobs/{id}`). The Postgres cache path itself has no test: B1's suite runs
+in replay, which never touches Postgres, so B2's first live run is the first
+time those two queries execute.
+
+CONTRACTS §3 gained a paragraph for the first two rules above. No signature
+changed; `NoNetwork` was already in §3 from Task 1.
+
 ---
 
 ## Open questions

@@ -1,0 +1,13 @@
+{
+  "id": "canned_search_1",
+  "_canned": "Hand-written test payload for internal/anakin. Not a recording.",
+  "results": [
+    {
+      "url": "https://example.com/acme-review",
+      "title": "CANNED: a review of the Acme serum",
+      "snippet": "CANNED FIXTURE. This text exists so a test can prove Search routes through the cache and the budget.",
+      "date": "2026-09-19T08:00:00Z",
+      "last_updated": "2026-09-19T08:00:00Z"
+    }
+  ]
+}

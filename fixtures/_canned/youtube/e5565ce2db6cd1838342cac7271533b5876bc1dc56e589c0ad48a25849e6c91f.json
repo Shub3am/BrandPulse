@@ -1,0 +1,14 @@
+{
+  "status": "completed",
+  "_canned": "Hand-written test payload for internal/anakin. Not a recording, and the field names under data are not the real ones.",
+  "credits_used": 3,
+  "execution_ms": 8420,
+  "data": {
+    "comments": [
+      {
+        "id": "canned_comment_1",
+        "text": "CANNED FIXTURE. B2 replaces this with a real yt_comments recording."
+      }
+    ]
+  }
+}

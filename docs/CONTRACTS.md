@@ -576,6 +576,21 @@ from `fixtures/` instead of the network.
 | `record` | Calls Anakin for real, writes the response to `fixtures/`. Used once, by B2, on the demo brand. |
 | `live` | Calls Anakin, caches to Postgres, writes no fixtures. Stage demo only. |
 
+Two consequences of that table you will meet on your first call.
+
+**`replay` needs `Config.MaxCredits`.** Replay is cut off from Postgres
+entirely, so its budget has no `runs` rows and no `brands.daily_credit_budget`
+to read a ceiling from. `NewHTTPClient` rejects a replay config without one
+rather than letting every call fail later. Pick any number your test can spend.
+
+**`<source>` in the fixture path is the Postgres `source` enum, not the method.**
+`fetch_cache.source` is that enum, so the cache key and the fixture path have to
+be a member of it. `Wire` uses its `platform` argument, which must therefore be
+a `models.Source` such as `reddit`. `Search`, `Scrape`, `Map` and `Crawl` carry
+no source in their signatures and all file under `web`. That is a cache-key
+decision and not a claim about the mention: the adapter still sets the real
+`Mention.Source` when it parses the payload.
+
 CI runs with zero credits and zero API keys. Any test that needs the network is
 a broken test. Go has no `pytest-socket`; B1 enforces it instead by making
 `HTTPClient` take an `*http.Client` and CI injecting one whose `Transport`
