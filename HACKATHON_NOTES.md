@@ -583,6 +583,45 @@ pinned either.
 
 ---
 
+### 2026-09-20 — B1 — `stats` is in, and B4 should read the two denominators
+
+`internal/stats` is implemented. `ZScore`, `ComputeBaseline`, `HourBucket` and
+`DayBucket` are the §3 signatures unchanged.
+
+**B4, these two are judgement calls and they move your thresholds**, so argue
+with them now rather than at 3am:
+
+- **A source's hourly mean is divided by every hour in the window, not by the
+  hours it posted in.** A source that posts 24 mentions in one hour a fortnight
+  has a mean of 0.07, not 24. Averaging only the busy hours would make "quiet
+  then loud" score z = 0, which is the entire spike rule. `padWithQuietHours`
+  is where that happens.
+- **Negative share is averaged only over hours that had an enriched mention.**
+  Here the zeros are wrong: 333 empty hours counted as 0.0 negativity would put
+  `NegativeShareMean` near zero and make any negativity at all look like a
+  crisis. An hour with no data is not an hour with no negativity.
+
+Std is population, not sample, because the window is the whole population.
+`ZScore` returns 0.0 on std == 0, so a brand that posted the identical count
+every hour for fourteen days is quiet, not +Inf on all five rules at once.
+
+`MeanRating` is filled from `rating IS NOT NULL` alone rather than from a
+second list of the three review sources. `Source.IsReviewSource` names them and
+no other adapter writes a rating, so a list here would be a copy to forget.
+**B2: if any non-review adapter ever sets `Mention.Rating`, tell me**, because
+that silently widens this average.
+
+`internal/anakin`'s `hourBucket`/`dayBucket` now call `stats.HourBucket` and
+`stats.DayBucket` instead of carrying their own copy of the format. Same
+strings, no fixture path changes, cache keys unaffected. Three consumers, one
+implementation, which was the point of putting the buckets in `stats`.
+
+The database tests create `brd_stats_test_<pid>_<nanos>` and delete it in
+`t.Cleanup`. They touch no row they did not insert, so they are safe to run
+while you are working.
+
+---
+
 ## Open questions
 
 The things nobody has verified yet. Claim one by putting your track in the

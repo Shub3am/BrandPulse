@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"brandpulse/internal/models"
+	"brandpulse/internal/stats"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -678,8 +679,11 @@ func queryHash(method, arg string, opt any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func hourBucket(t time.Time) string { return t.UTC().Format("2006-01-02T15") }
-func dayBucket(t time.Time) string  { return t.UTC().Format("2006-01-02") }
+// The bucket format is internal/stats', not a second copy of it: a cache key,
+// a run's idempotency key and an alert's dedupe key have to agree on what "this
+// hour" is, or a re-run silently duplicates work.
+func hourBucket(t time.Time) string { return stats.HourBucket(t) }
+func dayBucket(t time.Time) string  { return stats.DayBucket(t) }
 
 func backoff(attempt int) time.Duration {
 	return baseBackoff * time.Duration(1<<(attempt-2))
