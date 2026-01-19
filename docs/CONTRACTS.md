@@ -501,6 +501,21 @@ replayed run must produce the alert it produced live. `NewAlert` leaves
 cannot show the numbers that fired it is the one thing this detector may not
 emit.
 
+### llm.ChatJSON
+
+Three things about it that a signature cannot say:
+
+- **`schema` must be a non-nil struct value**, and its fields must not carry
+  `omitempty`. Strict mode requires every property to appear in `required`, and
+  the reflector only marks a field required when it has no `omitempty`. A schema
+  struct with `omitempty` is rejected by the provider, not by us.
+- **`Usage` accumulates across the retry.** An unparseable reply is retried once
+  with a "return only valid JSON" nudge, and both attempts were billed, so both
+  are counted. A failed call still returns a non-zero `Usage`.
+- **An unpriced model is charged at the dearest row in `cost.go`**, never at
+  zero. If the router reports a model the table does not know, the rupee is an
+  over-estimate and the fix is to add the row.
+
 ### anakin.Client
 
 An **interface**, not a struct, because every agent's test needs a stub and

@@ -537,6 +537,52 @@ changed; `NoNetwork` was already in §3 from Task 1.
 
 ---
 
+### 2026-09-20 — B1 — `llm.ChatJSON` works, and B3 owns the rupee it reports
+
+`internal/llm` is implemented. `ChatJSON`, `Embed`, `Opt` and `Usage` are
+exactly the §3 signatures, so nothing you wrote against the stub changes.
+
+**Your schema struct must not use `omitempty`.** Strict mode requires every
+property to appear in `required`, and the reflector only marks a field required
+when it has no `omitempty`. A struct with `omitempty` compiles here and is
+rejected by the provider, which is the worst place to find out. Exported
+fields, `json` tags, no `omitempty`.
+
+**A failed call still returns a non-zero `Usage`.** An unparseable reply is
+retried once with a "return only valid JSON" nudge, and both attempts are
+billed, so both are counted. If you are summing cost, sum it on the error path
+too or the demo under-reports.
+
+**The cost table is `internal/llm/cost.go`, one map, and B3's `eval/cost` is
+its only consumer.** Do not put a second price anywhere. Three numbers in it
+need a second pair of eyes before the pitch:
+
+- The four rows are keyed on the **catalog name the router reports back**
+  (`openai/gpt-4o` and so on), not on what an agent asked for, because Nasiko
+  discards the request's `model` field. Lookup also tries the bare name, in
+  case the proxy strips its own prefix on the way back. **B3: paste one real
+  `resp.Model` string into this thread after the first live call.** If it is a
+  fifth form, that is a one-line fix and better found now.
+- An unknown model is charged at the **dearest** row, never at zero. A silent
+  0.00 is how a cost dashboard lies. If `eval/cost` prints a number that looks
+  too round and too high, look for a missing row before you look for a bug.
+- `gemini/gemini-1.5-pro` is priced at $3.50/$10.50 per 1M from
+  llmpricecheck.com, because **Google has retired 1.5 Pro from its own
+  published price list** and there is no first-party figure to cite. It is the
+  highest number in circulation, deliberately. The other three are
+  first-party (OpenAI and Anthropic docs, read today). Rupees use 95.885/USD,
+  the RBI reference rate for 2026-09-17. Re-read it on demo morning.
+
+Nine tests, all on a swapped `*http.Client`, no live call, and CI needs no
+`OPENAI_API_KEY`: the SDK does not error on a missing key, so "unset" is a
+valid CI state rather than a thing to work around. `go mod tidy` promoted
+`openai-go/v3` and `invopop/jsonschema` out of indirect and pulled their
+transitive set; it also moved `golang.org/x/sync` to v0.22.0 and
+`golang.org/x/text` to v0.40.0 in the shared `go.mod`. Nothing in the repo
+pinned either.
+
+---
+
 ## Open questions
 
 The things nobody has verified yet. Claim one by putting your track in the
