@@ -32,6 +32,9 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~No deploy pipeline~~ | **closed 2026-09-20**, `ci.yml` and `deploy.yml` exist, see below |
 | ~~B5, B6~~ | ~~you~~ | ~~No hosting target for `web/` and `bff/`~~ | **closed 2026-09-20**, ruled: localhost for the demo, see below |
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
+| B1 | B4 | **`a2a.Call` is unimplemented and still panics.** `internal/a2a` serves nine agents, but the client half that `bp-orchestrator` calls peers with is a `panic("not implemented")`. It is outside B1 Task 11's checklist and nothing imports it yet, so it is not stubbed into something that returns a plausible zero value. Whoever writes `bp-orchestrator` needs it, and it needs the Nasiko proxy address and routing header, which no track has verified yet. | open |
+| B1 | B7 | **`ci.yml` passes when the tests fail.** `go test ./... \| tee test.log` reports `tee`'s exit status, and Actions runs steps under `bash -e`, which does not imply `pipefail`. Also missing: `-race`, a Postgres 16 service (`internal/db` silently `t.Skip()`s its whole suite without `DATABASE_URL`), and the `http.DefaultClient` grep. Detail and a fix in the B1 entry below. Your file, your call, I have not touched it. | open |
+| B1 | B7 | **Second fast-forward of `main` to `track/b1-core`.** `73ef873` took the import surface; this is the eight commits after it: `anakin`, `llm`, `stats`, `prompts`, `obs`, `internal/a2a`, and the CONTRACTS §1 and §3 corrections. Rebased onto `main@631c9fc`, so `git merge --ff-only track/b1-core` again. | open, **first in the merge order** |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -668,6 +671,46 @@ make a checklist true.
 `go.opentelemetry.io/otel` v1.46.0, `otel/sdk`, the `otlptracehttp` exporter,
 `google.golang.org/grpc` v1.83.1 and `protobuf` v1.36.12. It also moved
 `golang.org/x/net` to v0.58.0 and `golang.org/x/text` to v0.41.0.
+
+### 2026-09-20 — B1 — `internal/a2a` is in, and it moves two fields the contract named
+
+`a2a.Serve(card, handler)` works end to end: a real JSON-RPC request over
+`httptest` comes back as one task in `TASK_STATE_COMPLETED` carrying one
+artifact. Nineteen tests, `-race`, no network. Two things in `CONTRACTS.md` were
+wrong, both verified against `a2a-go/v2@v2.5.0` source rather than against the
+brief, and both are now corrected in §1 and §3 on this branch.
+
+**B5, the card shape.** `protocolVersion` is not a top-level field. `AgentCard`
+in v2.5.0 has no such field at all (`a2a/agent.go:136`) and the version lives on
+each `supportedInterfaces[]` entry, next to `url` and `protocolBinding`. The
+note above at "Nasiko AgentCard `protocolVersion` must be `1.0`" is still right
+about the value and was never wrong; it just does not say where the field goes,
+and the older A2A material puts it at the top level. That shape parses cleanly,
+silently leaves `supportedInterfaces` empty, and the cluster answers `-32009`.
+`LoadCard` now rejects it at startup with an error naming the right location, so
+you read this once instead of debugging it nine times. §3 prints the exact JSON.
+`JSONRPC` is the only binding `Serve` mounts; a `GRPC`-only card is refused too.
+
+**B6, the envelope shape.** The artifact's mime type is `mediaType` **on the
+part**, not `mimeType` on the artifact. `Artifact` has no mime field in v2.5.0.
+The body is a `Data` part, so it arrives inline as real JSON and the BFF binds a
+field directly; a `Raw` part would have arrived base64 and cost you a decode.
+The verified wire envelope is pasted in `CONTRACTS.md` §1.
+
+**B7, two things for the smoke tests.** The JSON-RPC method is `"SendMessage"`,
+not the `"message/send"` older A2A material prints. v2.5.0 renamed them;
+`internal/jsonrpc/jsonrpc.go:38` in the SDK is the list. And every agent answers
+`GET /healthz` with 200. That path is mine, not A2A's: `docs/research/languages.md:311`
+records that Nasiko defines no health contract, so nothing probes it
+automatically and it exists so a smoke test does not have to read a JSON-RPC
+error to find out whether a process is alive.
+
+One thing I did not build. `a2a.Call` is still `panic("not implemented")`. Task
+11's checklist does not cover it, nothing imports it yet, and a stub that
+returned a plausible zero value would be worse: B4 would find out on stage. It
+has a blocker row above.
+
+`go get` added `github.com/a2aproject/a2a-go/v2` v2.5.0 to the shared `go.mod`.
 
 ---
 

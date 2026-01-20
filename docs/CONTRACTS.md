@@ -73,12 +73,25 @@ Every agent is an A2A server. A request arrives as a message whose single part
 is JSON matching the agent's **Input** below. Every agent replies with exactly
 one artifact:
 
-- `mimeType`: `application/json`
 - `name`: the agent's output type name, e.g. `MentionBatch`
-- body: `json.Marshal(output)`
+- one part, carrying `json.Marshal(output)` inline as JSON
+- `mediaType`: `application/json`, **on the part, not on the artifact**
 
 `internal/a2a` provides the helper that builds that artifact, so no agent hand
 -rolls the envelope and every agent's `main()` is the same twenty lines.
+
+The media type moved because `a2a-go` v2.5.0 has no mime field on `Artifact` at
+all: it is `Part.MediaType` (`a2a/core.go:419-436`). The body goes in a `Data`
+part rather than a `Raw` part, so it lands inline under `"data"` as real JSON
+instead of base64, which is what lets DronaHQ bind a field without decoding a
+string first. Verified on the wire:
+
+```json
+{"artifacts":[{"artifactId":"01a0be50-...","name":"MentionBatch",
+  "parts":[{"data":{"brand":"boat","mentions":["one","two"]},
+            "mediaType":"application/json"}]}],
+ "status":{"state":"TASK_STATE_COMPLETED"}}
+```
 
 **Errors do not fail the task, where there is a partial answer to give.** An
 agent whose output is a batch (`MentionBatch`, `EnrichmentBatch`, `TopicSet`,
@@ -472,9 +485,11 @@ type a2a.Handler[In, Out any] interface { Handle(context.Context, In) (Out, erro
 func a2a.Serve[In, Out any](card a2a.Card, h a2a.Handler[In, Out]) error
 func a2a.JSONArtifact(name string, v any) (a2a.Artifact, error)
 
-// LoadCard reads an agent's AgentCard.json and rejects a protocolVersion other
-// than "1.0". No agent builds a Card by hand, which is what lets internal/a2a
-// reconcile a2a.Card with the SDK's own card type without changing a main().
+// LoadCard reads an agent's AgentCard.json and rejects a card the cluster
+// would reject. The reconciliation §3 reserved turned out to be that there is
+// nothing to translate, so Card is an alias and not a copy: a copy would be
+// sixteen fields to keep in step with an SDK that has already moved one.
+type a2a.Card = a2a.AgentCard   // github.com/a2aproject/a2a-go/v2/a2a
 func a2a.LoadCard(path string) (a2a.Card, error)
 
 // Call reaches a peer agent through the Nasiko proxy. bp-orchestrator is the
@@ -482,6 +497,30 @@ func a2a.LoadCard(path string) (a2a.Card, error)
 // routing header are Nasiko's, and hardcoding one breaks on redeploy.
 func a2a.Call(ctx context.Context, agent string, in any, out any) error
 ```
+
+**`protocolVersion` is per interface, not top level.** `AgentCard` in v2.5.0
+has no `protocolVersion` field at all (`a2a/agent.go:136`); the version and the
+url both live inside `supportedInterfaces[]`. A card written the older way
+parses without an error, leaves `supportedInterfaces` empty, and is rejected by
+a real cluster with `-32009 VersionNotSupported`. `LoadCard` and `Serve` both
+reject it at startup instead, and the error names where the field goes. The
+shape every `AgentCard.json` must have:
+
+```json
+{
+  "name": "bp-collector",
+  "supportedInterfaces": [
+    {
+      "url": "https://bp-collector.nasiko.internal/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ]
+}
+```
+
+`JSONRPC` is the only binding `Serve` mounts, so a card advertising only `GRPC`
+is rejected too. The Nasiko sample ships `0.2.9`; that is rejected as well.
 
 B1 also adds the two domain constructors the existing `models.go` lacks and
 which B4 needs, `models.NewAlert` and `models.NewDailyBrief`, matching the
