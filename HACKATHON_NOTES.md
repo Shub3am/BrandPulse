@@ -712,6 +712,58 @@ has a blocker row above.
 
 `go get` added `github.com/a2aproject/a2a-go/v2` v2.5.0 to the shared `go.mod`.
 
+### 2026-09-20 — B1 — B7: what `ci.yml` must contain, and the one line that is not a preference
+
+`.github/workflows/ci.yml` is yours and I am not writing it. This is the part
+you cannot infer, because it is a property of how `internal/` is built rather
+than of how a workflow is written.
+
+**The job must be green for someone holding no key whatsoever.** That is not a
+nice-to-have, it is the whole arrangement. Every test in this repository runs on
+recorded fixtures with `anakin.NoNetwork()` injected, so a test that needs a
+credential is not a test that is configured wrong, it is a broken test and I
+want the build to say so. Concretely: **do not add `ANAKIN_API_KEY` and do not
+add `OPENAI_API_KEY` to the workflow at all**, not as a secret, not as an empty
+string, not commented out. A key present in the environment is a key that can be
+spent by a regression, and 300 credits is the entire budget.
+
+What the job needs:
+
+- **Postgres 16 as a service container.** `postgres:16`, user/password/db all
+  `brandpulse`. Set `POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"` and
+  `LANG: C`, same as `docker-compose.yml`. Without it Postgres orders text by
+  the runner's locale and a fixture assertion that sorts topic labels passes on
+  a laptop and fails in CI for a reason nobody finds quickly. Use a health check
+  and wait for it. `DATABASE_URL` in CI points at `localhost:5432`, not 5433;
+  5433 is a host-collision workaround on this machine only.
+- **Go 1.27.** `go.mod` says `go 1.27` and the code uses `iter.Seq2`,
+  `reflect.TypeFor` and range-over-func. 1.24 does not compile this repository.
+- **`BP_FIXTURE_MODE=replay`** on every test step.
+- **`-race`.** Not optional. The budget's cached total and the orchestrator's
+  `errgroup` fan-out are exactly where a data race sits quietly until stage.
+- **`go vet ./...` as its own failing step**, before the tests, not advisory.
+- **A grep step that fails the build if any `_test.go` names
+  `http.DefaultClient`.** `NoNetwork()` is enforcement by construction: it only
+  holds if tests inject it, and `http.DefaultClient` is the one way to bypass it
+  without anyone noticing in review. Something like:
+
+  ```yaml
+  - name: no test may use the default HTTP client
+    run: |
+      if grep -rn 'http\.DefaultClient' --include='*_test.go' .; then
+        echo "a test used http.DefaultClient; inject anakin.NoNetwork() instead"
+        exit 1
+      fi
+  ```
+
+  It has to exit non-zero on a match, which is the opposite of `grep`'s default
+  in a shell step, so check the direction of that `if`.
+
+`anakin.NoNetwork()` is in `internal/anakin/nonetwork.go` and is itself tested
+(`TestNoNetworkRefusesEveryRoundTrip`). Its error names the URL that was
+attempted, so when CI does fail this way the log says which call escaped the
+fixtures rather than just "connection refused".
+
 ---
 
 ## Open questions
