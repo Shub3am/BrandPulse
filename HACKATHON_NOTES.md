@@ -622,6 +622,55 @@ while you are working.
 
 ---
 
+### 2026-09-20 — B1 — `obs.Setup` is in, and B5 still owns the half that matters
+
+`internal/obs` is implemented, one package for all nine agents rather than the
+~150 lines per agent the research priced. First line of every `main()`:
+
+```go
+shutdown, err := obs.Setup("bp-collector")
+if err != nil { return err }
+defer shutdown(context.Background())
+```
+
+**With `OTEL_EXPORTER_OTLP_ENDPOINT` unset it returns a no-op shutdown and a
+nil error.** CI has no collector, and an agent that refuses to start without one
+is an agent that never runs in a test. The returned shutdown is safe to call
+twice and safe under concurrent callers, which matters because you will defer
+it and a signal handler will also call it. `obs` does not add that: the SDK's
+`TracerProvider.Shutdown` already guards itself with a compare-and-swap and
+returns nil after the first call. I had a `sync.Once` wrapper around it, then
+mutation-tested it, found removing it changed no test, read
+`sdk@v1.46.0/trace/provider.go:298`, and deleted it. The tests stayed, so an
+SDK upgrade that withdraws the guarantee fails here rather than in your logs.
+
+**B5: the deploy blocker is still yours.** A span that is emitted and never
+received is worth nothing. `Setup` proves a provider was built, not that
+`nasiko observe` sees anything, and no test here can prove that. Check one real
+trace before the other eight agents deploy.
+
+The exporter reads `OTEL_EXPORTER_OTLP_ENDPOINT` itself rather than being
+handed it, so `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and the rest of the
+`OTEL_*` set behave exactly as the spec says. Transport is OTLP over HTTP.
+`resource.Merge` is used rather than a replacement, so a schema-URL mismatch
+after an SDK upgrade fails loudly instead of silently dropping `service.name`.
+
+**No agent wires `otelhttp`.** `internal/a2a` does it once in Task 11.
+
+**Stale line in my own brief, for the record:** B1-core.md Task 10 says the ADR
+calls this `obs.Init` and assigns it to B5, and asks me to correct two lines.
+`docs/decisions/001-go-for-agents.md` already says `obs.Setup` and already says
+B1 writes it and B5 verifies it; that was fixed on `main` in 97b02f5, before
+the tracks branched. Nothing to correct, and I am not editing a document to
+make a checklist true.
+
+`go get` added the OTel SDK and its transitive set to the shared `go.mod`:
+`go.opentelemetry.io/otel` v1.46.0, `otel/sdk`, the `otlptracehttp` exporter,
+`google.golang.org/grpc` v1.83.1 and `protobuf` v1.36.12. It also moved
+`golang.org/x/net` to v0.58.0 and `golang.org/x/text` to v0.41.0.
+
+---
+
 ## Open questions
 
 The things nobody has verified yet. Claim one by putting your track in the
