@@ -9,10 +9,18 @@
 // rather than in a constant block because a constant nobody imports drifts
 // from the call sites that actually spell the prefix.
 //
-// STUB: signatures only, bodies panic. B1 Task 2 implements this.
+// This package must not be used to build a dedupe key. Two ids are never
+// equal, which is the opposite of what dedupe needs: that is hashing.ContentHash
+// for mentions and Alert.DedupeKey for alerts.
 package ids
 
+import "github.com/oklog/ulid/v2"
+
 // New returns a fresh id for prefix, formatted "<prefix>_<ulid>".
+//
+// ulid.Make is monotonic within a millisecond and safe for concurrent use, so
+// a collector minting ten thousand mention ids in one tight loop still gets
+// ids that sort in creation order.
 func New(prefix string) string {
-	panic("not implemented")
+	return prefix + "_" + ulid.Make().String()
 }

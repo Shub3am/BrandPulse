@@ -12,13 +12,16 @@
 // ceiling by forgetting a check, because the ceiling is enforced in the one
 // place that knows the real per-action cost.
 //
-// STUB: signatures only, bodies panic. B1 Tasks 5, 6 and 12 implement this.
+// This file is the contract surface: the interface, the options, the errors
+// and the config. The implementation is split by concern across http.go,
+// cache.go, replay.go, budget.go and nonetwork.go.
 package anakin
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -157,7 +160,10 @@ type FetchError struct {
 }
 
 func (e *FetchError) Error() string {
-	panic("not implemented")
+	if e.Err == nil {
+		return fmt.Sprintf("anakin: %s fetch failed: %s", e.Source, e.Reason)
+	}
+	return fmt.Sprintf("anakin: %s fetch failed: %s: %v", e.Source, e.Reason, e.Err)
 }
 
 func (e *FetchError) Unwrap() error { return e.Err }
@@ -170,8 +176,12 @@ func (e *FetchError) Unwrap() error { return e.Err }
 // HTTPClient is not decoration. It is how CI enforces no-network, because Go
 // has no pytest-socket: tests inject NoNetwork().
 type Config struct {
-	APIKey     string
-	Mode       Mode
+	APIKey string
+	Mode   Mode
+
+	// MaxCredits of 0 means "read brands.daily_credit_budget", which needs
+	// Pool. ModeReplay has no pool by design, so a replay Config without
+	// MaxCredits is rejected by NewHTTPClient rather than at the first call.
 	MaxCredits int
 
 	// BrandID and Day scope the persisted credit total, so a ceiling survives
@@ -187,35 +197,5 @@ type Config struct {
 	FixtureDir string
 }
 
-// NewHTTPClient returns a Client that checks fetch_cache first, spends against
-// the ceiling, and honours cfg.Mode. Once the ceiling is reached every method
-// returns ErrBudgetExceeded without calling out.
-func NewHTTPClient(cfg Config) (Client, error) {
-	panic("not implemented")
-}
-
-// Budget is a credit ceiling for one brand-day, backed by the summed
-// runs.credits_used so it survives a process restart.
-//
-// The running total is cached in memory behind a mutex: the orchestrator calls
-// collectors in parallel through errgroup, and an unguarded counter is how a
-// budget gets overspent.
-type Budget struct{}
-
-// NewBudget returns a budget for one brand-day. A ceiling of 0 means the
-// brand's own brands.daily_credit_budget applies.
-func NewBudget(pool *pgxpool.Pool, brandID string, day time.Time, ceiling int) *Budget {
-	panic("not implemented")
-}
-
-// Spend records n credits, returning an error wrapping ErrBudgetExceeded when
-// they would breach the ceiling. It re-reads the persisted total before
-// refusing, so a stale cache cannot block a run that has headroom.
-func (b *Budget) Spend(ctx context.Context, n int) error {
-	panic("not implemented")
-}
-
-// Remaining reports how many credits are left in the ceiling.
-func (b *Budget) Remaining(ctx context.Context) (int, error) {
-	panic("not implemented")
-}
+// NewHTTPClient and the Client implementation are in http.go.
+// Budget, NewBudget, Spend and Remaining are in budget.go.

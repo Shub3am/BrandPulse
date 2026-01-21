@@ -73,12 +73,25 @@ Every agent is an A2A server. A request arrives as a message whose single part
 is JSON matching the agent's **Input** below. Every agent replies with exactly
 one artifact:
 
-- `mimeType`: `application/json`
 - `name`: the agent's output type name, e.g. `MentionBatch`
-- body: `json.Marshal(output)`
+- one part, carrying `json.Marshal(output)` inline as JSON
+- `mediaType`: `application/json`, **on the part, not on the artifact**
 
 `internal/a2a` provides the helper that builds that artifact, so no agent hand
 -rolls the envelope and every agent's `main()` is the same twenty lines.
+
+The media type moved because `a2a-go` v2.5.0 has no mime field on `Artifact` at
+all: it is `Part.MediaType` (`a2a/core.go:419-436`). The body goes in a `Data`
+part rather than a `Raw` part, so it lands inline under `"data"` as real JSON
+instead of base64, which is what lets DronaHQ bind a field without decoding a
+string first. Verified on the wire:
+
+```json
+{"artifacts":[{"artifactId":"01a0be50-...","name":"MentionBatch",
+  "parts":[{"data":{"brand":"boat","mentions":["one","two"]},
+            "mediaType":"application/json"}]}],
+ "status":{"state":"TASK_STATE_COMPLETED"}}
+```
 
 **Errors do not fail the task, where there is a partial answer to give.** An
 agent whose output is a batch (`MentionBatch`, `EnrichmentBatch`, `TopicSet`,
@@ -472,9 +485,11 @@ type a2a.Handler[In, Out any] interface { Handle(context.Context, In) (Out, erro
 func a2a.Serve[In, Out any](card a2a.Card, h a2a.Handler[In, Out]) error
 func a2a.JSONArtifact(name string, v any) (a2a.Artifact, error)
 
-// LoadCard reads an agent's AgentCard.json and rejects a protocolVersion other
-// than "1.0". No agent builds a Card by hand, which is what lets internal/a2a
-// reconcile a2a.Card with the SDK's own card type without changing a main().
+// LoadCard reads an agent's AgentCard.json and rejects a card the cluster
+// would reject. The reconciliation §3 reserved turned out to be that there is
+// nothing to translate, so Card is an alias and not a copy: a copy would be
+// sixteen fields to keep in step with an SDK that has already moved one.
+type a2a.Card = a2a.AgentCard   // github.com/a2aproject/a2a-go/v2/a2a
 func a2a.LoadCard(path string) (a2a.Card, error)
 
 // Call reaches a peer agent through the Nasiko proxy. bp-orchestrator is the
@@ -482,6 +497,30 @@ func a2a.LoadCard(path string) (a2a.Card, error)
 // routing header are Nasiko's, and hardcoding one breaks on redeploy.
 func a2a.Call(ctx context.Context, agent string, in any, out any) error
 ```
+
+**`protocolVersion` is per interface, not top level.** `AgentCard` in v2.5.0
+has no `protocolVersion` field at all (`a2a/agent.go:136`); the version and the
+url both live inside `supportedInterfaces[]`. A card written the older way
+parses without an error, leaves `supportedInterfaces` empty, and is rejected by
+a real cluster with `-32009 VersionNotSupported`. `LoadCard` and `Serve` both
+reject it at startup instead, and the error names where the field goes. The
+shape every `AgentCard.json` must have:
+
+```json
+{
+  "name": "bp-collector",
+  "supportedInterfaces": [
+    {
+      "url": "https://bp-collector.nasiko.internal/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ]
+}
+```
+
+`JSONRPC` is the only binding `Serve` mounts, so a card advertising only `GRPC`
+is rejected too. The Nasiko sample ships `0.2.9`; that is rejected as well.
 
 B1 also adds the two domain constructors the existing `models.go` lacks and
 which B4 needs, `models.NewAlert` and `models.NewDailyBrief`, matching the
@@ -500,6 +539,21 @@ replayed run must produce the alert it produced live. `NewAlert` leaves
 `Evidence` empty and `Validate` rejects it that way, because an alert that
 cannot show the numbers that fired it is the one thing this detector may not
 emit.
+
+### llm.ChatJSON
+
+Three things about it that a signature cannot say:
+
+- **`schema` must be a non-nil struct value**, and its fields must not carry
+  `omitempty`. Strict mode requires every property to appear in `required`, and
+  the reflector only marks a field required when it has no `omitempty`. A schema
+  struct with `omitempty` is rejected by the provider, not by us.
+- **`Usage` accumulates across the retry.** An unparseable reply is retried once
+  with a "return only valid JSON" nudge, and both attempts were billed, so both
+  are counted. A failed call still returns a non-zero `Usage`.
+- **An unpriced model is charged at the dearest row in `cost.go`**, never at
+  zero. If the router reports a model the table does not know, the rupee is an
+  over-estimate and the fix is to add the row.
 
 ### anakin.Client
 
@@ -576,6 +630,21 @@ from `fixtures/` instead of the network.
 | `record` | Calls Anakin for real, writes the response to `fixtures/`. Used once, by B2, on the demo brand. |
 | `live` | Calls Anakin, caches to Postgres, writes no fixtures. Stage demo only. |
 
+Two consequences of that table you will meet on your first call.
+
+**`replay` needs `Config.MaxCredits`.** Replay is cut off from Postgres
+entirely, so its budget has no `runs` rows and no `brands.daily_credit_budget`
+to read a ceiling from. `NewHTTPClient` rejects a replay config without one
+rather than letting every call fail later. Pick any number your test can spend.
+
+**`<source>` in the fixture path is the Postgres `source` enum, not the method.**
+`fetch_cache.source` is that enum, so the cache key and the fixture path have to
+be a member of it. `Wire` uses its `platform` argument, which must therefore be
+a `models.Source` such as `reddit`. `Search`, `Scrape`, `Map` and `Crawl` carry
+no source in their signatures and all file under `web`. That is a cache-key
+decision and not a claim about the mention: the adapter still sets the real
+`Mention.Source` when it parses the payload.
+
 CI runs with zero credits and zero API keys. Any test that needs the network is
 a broken test. Go has no `pytest-socket`; B1 enforces it instead by making
 `HTTPClient` take an `*http.Client` and CI injecting one whose `Transport`
@@ -602,7 +671,9 @@ intended: do not "fix" one and do not add a field to close one.
 | `Alert.SampleMentions` | `alerts.sample_mention_ids` | objects on the wire, ids in storage | DronaHQ renders the alert without a second fetch; Postgres does not duplicate mention rows. |
 | `Topic.MentionIDs`, `.TopExamples` | `topic_mentions` join table | slice on the wire, rows in storage | The join is queryable; the artifact is self-contained. |
 | `BrandProfile.Name`, `.Website` | on `brands`, not `brand_profiles` | denormalised onto the wire | A profile artifact must be readable alone. Profiles are versioned, brand identity is not. |
-| every model | `created_at`, `collected_at`, `confirmed_at` | storage-only | Set by Postgres defaults. No agent writes them. |
+| no struct field | `brand_profiles.created_at`, `mention_enrichment.created_at`, `topics.created_at`, `reply_drafts.created_at`, `briefs.created_at` | storage-only | Set by the Postgres default. No agent writes them. |
+| no struct field | `brand_profiles.confirmed_at`, `mentions.collected_at` | storage-only | Same: written by storage, meaningless on the wire. |
+| `Alert.CreatedAt` | `alerts.created_at` | **not** storage-only, the pair matches | An alert is read by a human minutes after it fires, so when it fired is part of the artifact. This row exists because the one above it used to say "every model" and the code says otherwise. |
 | `ReplyDraft` requires_human_approval | no column, no struct field | constant `true`, emitted by `MarshalJSON` | It is an invariant, not state. Storing it would imply it could be false. |
 
 Everything else must match, and `internal/models/parity_test.go` (B1 Task 0)

@@ -1,0 +1,7 @@
+{
+  "_canned": "Hand-written test payload for internal/anakin. Not a recording.",
+  "markdown": "# CANNED FIXTURE\n\nThe scraped body of https://example.com/acme-review, written by hand so a test can prove Scrape routes through the cache and the budget.",
+  "cleanedHtml": "<h1>CANNED FIXTURE</h1>",
+  "cached": false,
+  "durationMs": 1200
+}

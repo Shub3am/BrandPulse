@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "_canned": "Hand-written test payload for internal/anakin. Not a recording, and the crawl poll envelope is UNVERIFIED.",
+  "results": [
+    {
+      "url": "https://example.com/about",
+      "markdown": "# CANNED FIXTURE\n\nThe about page of a site nobody crawled.",
+      "status": 200
+    }
+  ]
+}

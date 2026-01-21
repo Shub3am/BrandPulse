@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "_canned": "Hand-written test payload for internal/anakin. Not a recording, and the map poll envelope is UNVERIFIED.",
+  "links": [
+    "https://example.com/",
+    "https://example.com/about",
+    "https://example.com/products/acme-serum"
+  ],
+  "totalLinks": 3,
+  "externalLinks": []
+}

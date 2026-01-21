@@ -34,6 +34,9 @@ Newest entry at the bottom of its section.
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
 | ~~B6~~ | ~~B7~~ | ~~`track/b6-web` into `main`, `bff/` is new and `web/` drops `demoData`~~ | **closed 2026-09-20**, merged, see below |
 | ~~B6 (Task 6)~~ | ~~you~~ | ~~A ruling on `.github/workflows/web.yml`~~ | **closed 2026-09-20**, `ci.yml` has a `web` job doing exactly the build-and-check-only run B6 recommended |
+| B1 | B4 | **`a2a.Call` is unimplemented.** `internal/a2a` serves nine agents, but the client half that `bp-orchestrator` calls peers with returns `"a2a: Call is not implemented"` on every invocation. It is outside B1 Task 11's checklist and nothing imports it yet, so it is not stubbed into something that returns a plausible zero value. Whoever writes `bp-orchestrator` needs it, and it needs the Nasiko proxy address and routing header, which no track has verified yet. | open |
+| B1 | B7 | **`ci.yml` passes when the tests fail.** `go test ./... \| tee test.log` reports `tee`'s exit status, and Actions runs steps under `bash -e`, which does not imply `pipefail`. Also missing: `-race`, a Postgres 16 service (`internal/db` silently `t.Skip()`s its whole suite without `DATABASE_URL`), and the `http.DefaultClient` grep. Detail and a fix in the B1 entry below. Your file, your call, I have not touched it. | open |
+| B1 | B7 | **Second fast-forward of `main` to `track/b1-core`.** `73ef873` took the import surface; this is the eight commits after it: `anakin`, `llm`, `stats`, `prompts`, `obs`, `internal/a2a`, and the CONTRACTS §1 and §3 corrections. Rebased onto `main@631c9fc`, so `git merge --ff-only track/b1-core` again. | open, **first in the merge order** |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -526,6 +529,320 @@ returns `share_of_voice: null` and the dashboard renders
 `brief.numbers.share_of_voice` out of `briefs.payload` instead, which is the
 only place the figure actually exists. This is not a blocker for me; flagging it
 so nobody later assumes the BFF dropped it.
+
+### 2026-09-20 — B1 — the Anakin client works, and three of its rules will surprise you
+
+`internal/anakin` is implemented: all five `Client` methods, the fetch cache,
+the credit budget, fixture replay and record, and `anakin.NoNetwork()`. The
+suite is green in replay with `-race`, with no key and no network. Build against
+it now.
+
+Three things are not in the brief and you will hit them on your first call.
+
+**Replay needs `Config.MaxCredits`, or `NewHTTPClient` refuses to build.**
+Replay is cut off from Postgres on purpose, so the budget has no `runs` rows and
+no `brands.daily_credit_budget` to read a ceiling from. A zero would either mean
+"unlimited", which is how 300 credits disappear, or fail on every call. It fails
+at construction instead, with a message saying so. Pick any number.
+
+**The `<source>` in `fixtures/<source>/<query_hash>.json` is the Postgres enum,
+not the method.** `fetch_cache.source` is `source`, so the cache key and the
+fixture path must be a member of it. `Wire`'s `platform` argument therefore has
+to be a `models.Source` such as `reddit` or `youtube`, and it is rejected if it
+is not. `Search`, `Scrape`, `Map` and `Crawl` carry no source in their
+signatures, so they all file under `web`. That is a cache key, not a claim about
+the mention: your adapter still sets the real `Mention.Source`.
+
+**A cache hit is free and a repeat inside one run is a cache hit.** The cache
+has two layers: `fetch_cache` in Postgres, and a per-client map in front of it
+because a fan-out repeats the same query within a run and because a replay
+client has no pool at all. Both count as `Stats().CacheHits` and neither spends.
+So do not deduplicate queries before calling the client; it is already done, and
+doing it yourself means doing it differently.
+
+Two more worth knowing. A missing fixture is an error **naming the path it
+wanted**, never an empty list, so if you see zero mentions that is a real zero.
+And credits are held **before** the HTTP call and not refunded when it fails,
+although Anakin does not bill a failed call: with 300 credits and no second
+allocation, refusing one call too many is the right direction to be wrong in.
+
+`fixtures/_canned/` is mine, five hand-written payloads that exist so the five
+methods have a test. **Nothing in it is a recording** and no count or chart may
+be fed from it; every file says so in a `_canned` key and in its own text. Real
+recordings are B2's, in `fixtures/<source>/`.
+
+Unverified and isolated, one function each, so B2's live run is a small fix and
+not a rewrite: `parseJobID` (Wire documents `jobId`; the map and crawl 202
+bodies are not documented, so `id` and `job_id` are accepted too),
+`parseJobStatus` (the Wire poll envelope is assumed to cover map and crawl), and
+`mapJobPath` / `crawlJobPath` (the poll paths follow the one documented example,
+`/wire/jobs/{id}`). The Postgres cache path itself has no test: B1's suite runs
+in replay, which never touches Postgres, so B2's first live run is the first
+time those two queries execute.
+
+CONTRACTS §3 gained a paragraph for the first two rules above. No signature
+changed; `NoNetwork` was already in §3 from Task 1.
+
+---
+
+### 2026-09-20 — B1 — `llm.ChatJSON` works, and B3 owns the rupee it reports
+
+`internal/llm` is implemented. `ChatJSON`, `Embed`, `Opt` and `Usage` are
+exactly the §3 signatures, so nothing you wrote against the stub changes.
+
+**Your schema struct must not use `omitempty`.** Strict mode requires every
+property to appear in `required`, and the reflector only marks a field required
+when it has no `omitempty`. A struct with `omitempty` compiles here and is
+rejected by the provider, which is the worst place to find out. Exported
+fields, `json` tags, no `omitempty`.
+
+**A failed call still returns a non-zero `Usage`.** An unparseable reply is
+retried once with a "return only valid JSON" nudge, and both attempts are
+billed, so both are counted. If you are summing cost, sum it on the error path
+too or the demo under-reports.
+
+**The cost table is `internal/llm/cost.go`, one map, and B3's `eval/cost` is
+its only consumer.** Do not put a second price anywhere. Three numbers in it
+need a second pair of eyes before the pitch:
+
+- The four rows are keyed on the **catalog name the router reports back**
+  (`openai/gpt-4o` and so on), not on what an agent asked for, because Nasiko
+  discards the request's `model` field. Lookup also tries the bare name, in
+  case the proxy strips its own prefix on the way back. **B3: paste one real
+  `resp.Model` string into this thread after the first live call.** If it is a
+  fifth form, that is a one-line fix and better found now.
+- An unknown model is charged at the **dearest** row, never at zero. A silent
+  0.00 is how a cost dashboard lies. If `eval/cost` prints a number that looks
+  too round and too high, look for a missing row before you look for a bug.
+- `gemini/gemini-1.5-pro` is priced at $3.50/$10.50 per 1M from
+  llmpricecheck.com, because **Google has retired 1.5 Pro from its own
+  published price list** and there is no first-party figure to cite. It is the
+  highest number in circulation, deliberately. The other three are
+  first-party (OpenAI and Anthropic docs, read today). Rupees use 95.885/USD,
+  the RBI reference rate for 2026-09-17. Re-read it on demo morning.
+
+Nine tests, all on a swapped `*http.Client`, no live call, and CI needs no
+`OPENAI_API_KEY`: the SDK does not error on a missing key, so "unset" is a
+valid CI state rather than a thing to work around. `go mod tidy` promoted
+`openai-go/v3` and `invopop/jsonschema` out of indirect and pulled their
+transitive set; it also moved `golang.org/x/sync` to v0.22.0 and
+`golang.org/x/text` to v0.40.0 in the shared `go.mod`. Nothing in the repo
+pinned either.
+
+---
+
+### 2026-09-20 — B1 — `stats` is in, and B4 should read the two denominators
+
+`internal/stats` is implemented. `ZScore`, `ComputeBaseline`, `HourBucket` and
+`DayBucket` are the §3 signatures unchanged.
+
+**B4, these two are judgement calls and they move your thresholds**, so argue
+with them now rather than at 3am:
+
+- **A source's hourly mean is divided by every hour in the window, not by the
+  hours it posted in.** A source that posts 24 mentions in one hour a fortnight
+  has a mean of 0.07, not 24. Averaging only the busy hours would make "quiet
+  then loud" score z = 0, which is the entire spike rule. `padWithQuietHours`
+  is where that happens.
+- **Negative share is averaged only over hours that had an enriched mention.**
+  Here the zeros are wrong: 333 empty hours counted as 0.0 negativity would put
+  `NegativeShareMean` near zero and make any negativity at all look like a
+  crisis. An hour with no data is not an hour with no negativity.
+
+Std is population, not sample, because the window is the whole population.
+`ZScore` returns 0.0 on std == 0, so a brand that posted the identical count
+every hour for fourteen days is quiet, not +Inf on all five rules at once.
+
+`MeanRating` is filled from `rating IS NOT NULL` alone rather than from a
+second list of the three review sources. `Source.IsReviewSource` names them and
+no other adapter writes a rating, so a list here would be a copy to forget.
+**B2: if any non-review adapter ever sets `Mention.Rating`, tell me**, because
+that silently widens this average.
+
+`internal/anakin`'s `hourBucket`/`dayBucket` now call `stats.HourBucket` and
+`stats.DayBucket` instead of carrying their own copy of the format. Same
+strings, no fixture path changes, cache keys unaffected. Three consumers, one
+implementation, which was the point of putting the buckets in `stats`.
+
+The database tests create `brd_stats_test_<pid>_<nanos>` and delete it in
+`t.Cleanup`. They touch no row they did not insert, so they are safe to run
+while you are working.
+
+---
+
+### 2026-09-20 — B1 — `obs.Setup` is in, and B5 still owns the half that matters
+
+`internal/obs` is implemented, one package for all nine agents rather than the
+~150 lines per agent the research priced. First line of every `main()`:
+
+```go
+shutdown, err := obs.Setup("bp-collector")
+if err != nil { return err }
+defer shutdown(context.Background())
+```
+
+**With `OTEL_EXPORTER_OTLP_ENDPOINT` unset it returns a no-op shutdown and a
+nil error.** CI has no collector, and an agent that refuses to start without one
+is an agent that never runs in a test. The returned shutdown is safe to call
+twice and safe under concurrent callers, which matters because you will defer
+it and a signal handler will also call it. `obs` does not add that: the SDK's
+`TracerProvider.Shutdown` already guards itself with a compare-and-swap and
+returns nil after the first call. I had a `sync.Once` wrapper around it, then
+mutation-tested it, found removing it changed no test, read
+`sdk@v1.46.0/trace/provider.go:298`, and deleted it. The tests stayed, so an
+SDK upgrade that withdraws the guarantee fails here rather than in your logs.
+
+**B5: the deploy blocker is still yours.** A span that is emitted and never
+received is worth nothing. `Setup` proves a provider was built, not that
+`nasiko observe` sees anything, and no test here can prove that. Check one real
+trace before the other eight agents deploy.
+
+The exporter reads `OTEL_EXPORTER_OTLP_ENDPOINT` itself rather than being
+handed it, so `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and the rest of the
+`OTEL_*` set behave exactly as the spec says. Transport is OTLP over HTTP.
+`resource.Merge` is used rather than a replacement, so a schema-URL mismatch
+after an SDK upgrade fails loudly instead of silently dropping `service.name`.
+
+**No agent wires `otelhttp`.** `internal/a2a` does it once in Task 11.
+
+**Stale line in my own brief, for the record:** B1-core.md Task 10 says the ADR
+calls this `obs.Init` and assigns it to B5, and asks me to correct two lines.
+`docs/decisions/001-go-for-agents.md` already says `obs.Setup` and already says
+B1 writes it and B5 verifies it; that was fixed on `main` in 97b02f5, before
+the tracks branched. Nothing to correct, and I am not editing a document to
+make a checklist true.
+
+`go get` added the OTel SDK and its transitive set to the shared `go.mod`:
+`go.opentelemetry.io/otel` v1.46.0, `otel/sdk`, the `otlptracehttp` exporter,
+`google.golang.org/grpc` v1.83.1 and `protobuf` v1.36.12. It also moved
+`golang.org/x/net` to v0.58.0 and `golang.org/x/text` to v0.41.0.
+
+### 2026-09-20 — B1 — `internal/a2a` is in, and it moves two fields the contract named
+
+`a2a.Serve(card, handler)` works end to end: a real JSON-RPC request over
+`httptest` comes back as one task in `TASK_STATE_COMPLETED` carrying one
+artifact. Nineteen tests, `-race`, no network. Two things in `CONTRACTS.md` were
+wrong, both verified against `a2a-go/v2@v2.5.0` source rather than against the
+brief, and both are now corrected in §1 and §3 on this branch.
+
+**B5, the card shape.** `protocolVersion` is not a top-level field. `AgentCard`
+in v2.5.0 has no such field at all (`a2a/agent.go:136`) and the version lives on
+each `supportedInterfaces[]` entry, next to `url` and `protocolBinding`. The
+note above at "Nasiko AgentCard `protocolVersion` must be `1.0`" is still right
+about the value and was never wrong; it just does not say where the field goes,
+and the older A2A material puts it at the top level. That shape parses cleanly,
+silently leaves `supportedInterfaces` empty, and the cluster answers `-32009`.
+`LoadCard` now rejects it at startup with an error naming the right location, so
+you read this once instead of debugging it nine times. §3 prints the exact JSON.
+`JSONRPC` is the only binding `Serve` mounts; a `GRPC`-only card is refused too.
+
+**B6, the envelope shape.** The artifact's mime type is `mediaType` **on the
+part**, not `mimeType` on the artifact. `Artifact` has no mime field in v2.5.0.
+The body is a `Data` part, so it arrives inline as real JSON and the BFF binds a
+field directly; a `Raw` part would have arrived base64 and cost you a decode.
+The verified wire envelope is pasted in `CONTRACTS.md` §1.
+
+**B7, two things for the smoke tests.** The JSON-RPC method is `"SendMessage"`,
+not the `"message/send"` older A2A material prints. v2.5.0 renamed them;
+`internal/jsonrpc/jsonrpc.go:38` in the SDK is the list. And every agent answers
+`GET /healthz` with 200. That path is mine, not A2A's: `docs/research/languages.md:311`
+records that Nasiko defines no health contract, so nothing probes it
+automatically and it exists so a smoke test does not have to read a JSON-RPC
+error to find out whether a process is alive.
+
+One thing I did not build. `a2a.Call` returns "not implemented" on every call.
+Task 11's checklist does not cover it, nothing imports it yet, and a stub that
+returned a plausible zero value would be worse: B4 would find out on stage. It
+returns the error rather than panicking, so if something does reach it during
+the demo the caller's existing error path absorbs it instead of the process
+dying. It has a blocker row above.
+
+**B5, one thing to know before you leave an agent running.** `Serve` takes the
+SDK's default in-memory task store, and that store never evicts: every task it
+has ever served keeps its decoded artifact for the life of the process. A 28KB
+`MentionBatch` retains roughly 110KB once it is a `map[string]any`, so a pod
+accumulates about that per request with no ceiling. Irrelevant for a two-minute
+demo, and it is the thing that kills a pod left up overnight. Fixing it means a
+`taskstore.Store` that expires terminal tasks, which is not in Task 11. The
+constraint is recorded at `internal/a2a/serve.go` where the store is installed.
+
+`go get` added `github.com/a2aproject/a2a-go/v2` v2.5.0 to the shared `go.mod`.
+
+### 2026-09-20 — B1 — B7: `ci.yml` passes when the tests fail, and three things are missing
+
+You wrote `ci.yml` while I was on Task 11, so this is a review of the real file
+rather than the spec Task 12 told me to post. I have not touched it; it is
+yours. One bug and three gaps, all in the `go` job. Blocker row raised above.
+
+**The bug: a failing `go test` does not fail the build.**
+
+```yaml
+run: go test ./... 2>&1 | tee test.log
+```
+
+A pipeline's exit status is the **last** command's, so this step reports
+`tee`'s success and discards `go test`'s result. Actions runs `run:` under
+`bash -e {0}` on Linux, and `-e` does not imply `pipefail`. Verified:
+
+```
+$ bash -e -c 'false | tee /dev/null; echo "exit=$?"'
+exit=0
+```
+
+Every red test in this repository is currently green in CI. The fix is one
+line, `shell: bash` plus `set -o pipefail`, or drop the `tee` and use
+`--json`. The "how much is actually tested" step below it is a good idea and I
+would keep it; it just cannot compensate for this.
+
+**Missing, and each one is in my Task 12 brief:**
+
+- **`-race`.** The brief names why: the budget's cached total and the
+  orchestrator's `errgroup` fan-out are where a data race hides until stage.
+  `go test -race ./...`.
+- **Postgres 16 as a service container.** `internal/db`'s tests call
+  `t.Skip("DATABASE_URL is unset; start the compose Postgres and export it")`,
+  so right now the entire db layer is skipped and the run is still green. Use
+  `postgres:16` with user/password/db all `brandpulse`, a health check, and
+  `LANG: C` with `POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"` copied
+  from `docker-compose.yml`. Without the locale settings Postgres orders text
+  by the runner's locale, and a fixture assertion that sorts topic labels
+  passes on a laptop and fails in CI for a reason nobody finds quickly.
+  `DATABASE_URL` in CI is `localhost:5432`, not 5433; 5433 is a host-collision
+  workaround on this machine only.
+- **A grep step failing the build if any `_test.go` names
+  `http.DefaultClient`.** `anakin.NoNetwork()` is enforcement by construction:
+  it only holds while tests inject it, and `http.DefaultClient` is the one way
+  around it that survives review.
+
+  ```yaml
+  - name: no test may use the default HTTP client
+    run: |
+      if grep -rn 'http\.DefaultClient' --include='*_test.go' .; then
+        echo "a test used http.DefaultClient; inject anakin.NoNetwork() instead"
+        exit 1
+      fi
+  ```
+
+  It must exit non-zero **on a match**, which is the opposite of `grep`'s usual
+  direction in a shell step.
+
+**What you got right and I would not change.** `BP_FIXTURE_MODE: replay` at the
+job level. `go-version-file: go.mod`, which is how the job picks up Go 1.27,
+and 1.24 does not compile this repository. `go vet` as its own failing step
+rather than advisory. The tidy check. And the thing that matters most:
+
+**The job must be green for someone holding no key whatsoever**, and yours is.
+There is no `ANAKIN_API_KEY` and no `OPENAI_API_KEY` in the workflow, not as a
+secret, not as an empty string, not commented out. Keep it that way. A key
+present in the environment is a key a regression can spend, and 300 credits is
+the entire budget. A test that needs a credential is not a test configured
+wrong, it is a broken test, and I want the build to say so. That is not a
+nice-to-have, it is the whole arrangement.
+
+`anakin.NoNetwork()` is in `internal/anakin/nonetwork.go` and is itself tested
+(`TestNoNetworkRefusesEveryRoundTrip`). Its error names the URL that was
+attempted, so when CI does fail this way the log says which call escaped the
+fixtures rather than just "connection refused".
 
 ---
 
