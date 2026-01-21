@@ -18,6 +18,16 @@ import (
 
 const jsonMimeType = "application/json"
 
+// Artifact is the single application/json artifact an agent replies with.
+//
+// There is no mime field. Every artifact this repository sends is JSON, so the
+// media type is a property of the type and toParts writes jsonMimeType itself.
+// A field would only be somewhere for an empty string to come from.
+type Artifact struct {
+	Name string
+	Body []byte
+}
+
 // JSONArtifact marshals v into the single application/json artifact an agent
 // replies with. name is the output type name, such as "MentionBatch", which is
 // what DronaHQ keys its bindings on.
@@ -29,7 +39,7 @@ func JSONArtifact(name string, v any) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, fmt.Errorf("a2a: marshal the %s artifact: %w", name, err)
 	}
-	return Artifact{MimeType: jsonMimeType, Name: name, Body: body}, nil
+	return Artifact{Name: name, Body: body}, nil
 }
 
 // toParts converts the envelope to the SDK's shape.
@@ -60,7 +70,7 @@ func (a Artifact) toParts() (*a2aproto.Artifact, error) {
 	}
 
 	part := a2aproto.NewDataPart(decoded)
-	part.MediaType = a.MimeType
+	part.MediaType = jsonMimeType
 	return &a2aproto.Artifact{
 		ID:    a2aproto.NewArtifactID(),
 		Name:  a.Name,

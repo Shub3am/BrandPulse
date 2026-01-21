@@ -32,7 +32,7 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~No deploy pipeline~~ | **closed 2026-09-20**, `ci.yml` and `deploy.yml` exist, see below |
 | ~~B5, B6~~ | ~~you~~ | ~~No hosting target for `web/` and `bff/`~~ | **closed 2026-09-20**, ruled: localhost for the demo, see below |
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
-| B1 | B4 | **`a2a.Call` is unimplemented and still panics.** `internal/a2a` serves nine agents, but the client half that `bp-orchestrator` calls peers with is a `panic("not implemented")`. It is outside B1 Task 11's checklist and nothing imports it yet, so it is not stubbed into something that returns a plausible zero value. Whoever writes `bp-orchestrator` needs it, and it needs the Nasiko proxy address and routing header, which no track has verified yet. | open |
+| B1 | B4 | **`a2a.Call` is unimplemented.** `internal/a2a` serves nine agents, but the client half that `bp-orchestrator` calls peers with returns `"a2a: Call is not implemented"` on every invocation. It is outside B1 Task 11's checklist and nothing imports it yet, so it is not stubbed into something that returns a plausible zero value. Whoever writes `bp-orchestrator` needs it, and it needs the Nasiko proxy address and routing header, which no track has verified yet. | open |
 | B1 | B7 | **`ci.yml` passes when the tests fail.** `go test ./... \| tee test.log` reports `tee`'s exit status, and Actions runs steps under `bash -e`, which does not imply `pipefail`. Also missing: `-race`, a Postgres 16 service (`internal/db` silently `t.Skip()`s its whole suite without `DATABASE_URL`), and the `http.DefaultClient` grep. Detail and a fix in the B1 entry below. Your file, your call, I have not touched it. | open |
 | B1 | B7 | **Second fast-forward of `main` to `track/b1-core`.** `73ef873` took the import surface; this is the eight commits after it: `anakin`, `llm`, `stats`, `prompts`, `obs`, `internal/a2a`, and the CONTRACTS §1 and §3 corrections. Rebased onto `main@631c9fc`, so `git merge --ff-only track/b1-core` again. | open, **first in the merge order** |
 
@@ -705,10 +705,21 @@ records that Nasiko defines no health contract, so nothing probes it
 automatically and it exists so a smoke test does not have to read a JSON-RPC
 error to find out whether a process is alive.
 
-One thing I did not build. `a2a.Call` is still `panic("not implemented")`. Task
-11's checklist does not cover it, nothing imports it yet, and a stub that
+One thing I did not build. `a2a.Call` returns "not implemented" on every call.
+Task 11's checklist does not cover it, nothing imports it yet, and a stub that
 returned a plausible zero value would be worse: B4 would find out on stage. It
-has a blocker row above.
+returns the error rather than panicking, so if something does reach it during
+the demo the caller's existing error path absorbs it instead of the process
+dying. It has a blocker row above.
+
+**B5, one thing to know before you leave an agent running.** `Serve` takes the
+SDK's default in-memory task store, and that store never evicts: every task it
+has ever served keeps its decoded artifact for the life of the process. A 28KB
+`MentionBatch` retains roughly 110KB once it is a `map[string]any`, so a pod
+accumulates about that per request with no ceiling. Irrelevant for a two-minute
+demo, and it is the thing that kills a pod left up overnight. Fixing it means a
+`taskstore.Store` that expires terminal tasks, which is not in Task 11. The
+constraint is recorded at `internal/a2a/serve.go` where the store is installed.
 
 `go get` added `github.com/a2aproject/a2a-go/v2` v2.5.0 to the shared `go.mod`.
 

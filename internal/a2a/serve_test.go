@@ -280,12 +280,8 @@ type wireTask struct {
 		} `json:"message"`
 	} `json:"status"`
 	Artifacts []struct {
-		Name  string `json:"name"`
-		Parts []struct {
-			MediaType string          `json:"mediaType"`
-			Data      json.RawMessage `json:"data"`
-			Raw       string          `json:"raw"`
-		} `json:"parts"`
+		Name  string     `json:"name"`
+		Parts []wirePart `json:"parts"`
 	} `json:"artifacts"`
 
 	raw string
@@ -347,13 +343,18 @@ func sendMessage(t *testing.T, server *httptest.Server, part json.RawMessage) wi
 	return task
 }
 
-// firstArtifactPart fails the test rather than panicking, so a regression that
-// drops the artifact reports the envelope it did send.
-func (w wireTask) firstArtifactPart(t *testing.T) struct {
+// wirePart is one part of an artifact as it comes back on the wire. It is
+// declared once because wireTask embeds it and firstArtifactPart returns it,
+// and Go requires two anonymous struct types to match field for field.
+type wirePart struct {
 	MediaType string          `json:"mediaType"`
 	Data      json.RawMessage `json:"data"`
 	Raw       string          `json:"raw"`
-} {
+}
+
+// firstArtifactPart fails the test rather than panicking, so a regression that
+// drops the artifact reports the envelope it did send.
+func (w wireTask) firstArtifactPart(t *testing.T) wirePart {
 	t.Helper()
 	if len(w.Artifacts) != 1 {
 		t.Fatalf("the task carries %d artifacts, want exactly 1: %s", len(w.Artifacts), w.raw)

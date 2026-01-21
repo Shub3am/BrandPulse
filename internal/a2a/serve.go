@@ -39,20 +39,19 @@ const healthPath = "/healthz"
 
 // defaultPort is what Serve listens on when PORT is unset. Nasiko always
 // injects PORT; this is so `go run ./agents/bp-collector` works locally.
-const defaultPort = "8080"
+//
+// 8000, not 8080, because three other places already said 8000: B5's brief
+// ("falls back to 8000 locally"), its Dockerfile's EXPOSE, and the deploy note
+// in HACKATHON_NOTES. In production PORT is always injected, so a fork here
+// would never surface until someone ran an agent locally and curled the port
+// the docs told them to.
+const defaultPort = "8000"
 
 // Handler is what every agent implements: one method, its own input type in,
 // its own output type out. No agent implements the SDK's executor interface
 // directly.
 type Handler[In, Out any] interface {
 	Handle(ctx context.Context, in In) (Out, error)
-}
-
-// Artifact is the single application/json artifact an agent replies with.
-type Artifact struct {
-	MimeType string `json:"mimeType"`
-	Name     string `json:"name"`
-	Body     []byte `json:"body"`
 }
 
 // Serve reads PORT, registers the health path, wraps the mux in otelhttp and
@@ -85,6 +84,12 @@ func newMux[In, Out any](card Card, h Handler[In, Out]) http.Handler {
 	mux.HandleFunc(healthPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	// NewHandler with no WithTaskStore installs the SDK's in-memory store, and
+	// that store never evicts: every task ever served keeps its decoded
+	// artifact for the life of the process. A 28KB MentionBatch retains about
+	// 110KB once it is a map[string]any, so an agent left running accumulates
+	// roughly that per request, forever. Fine for a demo, not for a long-lived
+	// pod. Fixing it means a Store implementation that expires terminal tasks.
 	mux.Handle("/", a2asrv.NewJSONRPCHandler(a2asrv.NewHandler(executorFor(h))))
 
 	// otelhttp goes on once, here, rather than in nine main()s. internal/obs
@@ -158,14 +163,15 @@ func run[In, Out any](ctx context.Context, h Handler[In, Out], message *a2aproto
 // URL out of a request is an agent that can be asked to fetch anything.
 func decodeInput[In any](message *a2aproto.Message) (In, error) {
 	var in In
-	if message == nil || len(message.Parts) == 0 {
-		return in, fmt.Errorf("a2a: the request carries no parts")
+	var parts a2aproto.ContentParts
+	if message != nil {
+		parts = message.Parts
 	}
-	if len(message.Parts) != 1 {
-		return in, fmt.Errorf("a2a: the request carries %d parts, want exactly 1", len(message.Parts))
+	if len(parts) != 1 {
+		return in, fmt.Errorf("a2a: the request carries %d parts, want exactly 1", len(parts))
 	}
 
-	part := message.Parts[0]
+	part := parts[0]
 	var body []byte
 	switch content := part.Content.(type) {
 	case a2aproto.Data:
@@ -205,6 +211,11 @@ func taskFailure(execCtx *a2asrv.ExecutorContext, err error) a2aproto.Event {
 //
 // STUB: B1 Task 11 does not cover this and nothing calls it yet. See the
 // blocker row in HACKATHON_NOTES; whoever writes bp-orchestrator needs it.
+//
+// It returns an error rather than panicking. The signature already returns one,
+// so the caller's existing error path absorbs it, and a panic here would be the
+// worst failure this package can produce: taskFailure exists precisely so that
+// trouble becomes a reported task state instead of a dead server process.
 func Call(ctx context.Context, agent string, in any, out any) error {
-	panic("not implemented")
+	return fmt.Errorf("a2a: Call is not implemented, so %s cannot be reached; see the B1/B4 blocker in HACKATHON_NOTES", agent)
 }
