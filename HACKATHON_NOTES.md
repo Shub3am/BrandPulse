@@ -712,40 +712,51 @@ has a blocker row above.
 
 `go get` added `github.com/a2aproject/a2a-go/v2` v2.5.0 to the shared `go.mod`.
 
-### 2026-09-20 — B1 — B7: what `ci.yml` must contain, and the one line that is not a preference
+### 2026-09-20 — B1 — B7: `ci.yml` passes when the tests fail, and three things are missing
 
-`.github/workflows/ci.yml` is yours and I am not writing it. This is the part
-you cannot infer, because it is a property of how `internal/` is built rather
-than of how a workflow is written.
+You wrote `ci.yml` while I was on Task 11, so this is a review of the real file
+rather than the spec Task 12 told me to post. I have not touched it; it is
+yours. One bug and three gaps, all in the `go` job. Blocker row raised above.
 
-**The job must be green for someone holding no key whatsoever.** That is not a
-nice-to-have, it is the whole arrangement. Every test in this repository runs on
-recorded fixtures with `anakin.NoNetwork()` injected, so a test that needs a
-credential is not a test that is configured wrong, it is a broken test and I
-want the build to say so. Concretely: **do not add `ANAKIN_API_KEY` and do not
-add `OPENAI_API_KEY` to the workflow at all**, not as a secret, not as an empty
-string, not commented out. A key present in the environment is a key that can be
-spent by a regression, and 300 credits is the entire budget.
+**The bug: a failing `go test` does not fail the build.**
 
-What the job needs:
+```yaml
+run: go test ./... 2>&1 | tee test.log
+```
 
-- **Postgres 16 as a service container.** `postgres:16`, user/password/db all
-  `brandpulse`. Set `POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"` and
-  `LANG: C`, same as `docker-compose.yml`. Without it Postgres orders text by
-  the runner's locale and a fixture assertion that sorts topic labels passes on
-  a laptop and fails in CI for a reason nobody finds quickly. Use a health check
-  and wait for it. `DATABASE_URL` in CI points at `localhost:5432`, not 5433;
-  5433 is a host-collision workaround on this machine only.
-- **Go 1.27.** `go.mod` says `go 1.27` and the code uses `iter.Seq2`,
-  `reflect.TypeFor` and range-over-func. 1.24 does not compile this repository.
-- **`BP_FIXTURE_MODE=replay`** on every test step.
-- **`-race`.** Not optional. The budget's cached total and the orchestrator's
-  `errgroup` fan-out are exactly where a data race sits quietly until stage.
-- **`go vet ./...` as its own failing step**, before the tests, not advisory.
-- **A grep step that fails the build if any `_test.go` names
-  `http.DefaultClient`.** `NoNetwork()` is enforcement by construction: it only
-  holds if tests inject it, and `http.DefaultClient` is the one way to bypass it
-  without anyone noticing in review. Something like:
+A pipeline's exit status is the **last** command's, so this step reports
+`tee`'s success and discards `go test`'s result. Actions runs `run:` under
+`bash -e {0}` on Linux, and `-e` does not imply `pipefail`. Verified:
+
+```
+$ bash -e -c 'false | tee /dev/null; echo "exit=$?"'
+exit=0
+```
+
+Every red test in this repository is currently green in CI. The fix is one
+line, `shell: bash` plus `set -o pipefail`, or drop the `tee` and use
+`--json`. The "how much is actually tested" step below it is a good idea and I
+would keep it; it just cannot compensate for this.
+
+**Missing, and each one is in my Task 12 brief:**
+
+- **`-race`.** The brief names why: the budget's cached total and the
+  orchestrator's `errgroup` fan-out are where a data race hides until stage.
+  `go test -race ./...`.
+- **Postgres 16 as a service container.** `internal/db`'s tests call
+  `t.Skip("DATABASE_URL is unset; start the compose Postgres and export it")`,
+  so right now the entire db layer is skipped and the run is still green. Use
+  `postgres:16` with user/password/db all `brandpulse`, a health check, and
+  `LANG: C` with `POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"` copied
+  from `docker-compose.yml`. Without the locale settings Postgres orders text
+  by the runner's locale, and a fixture assertion that sorts topic labels
+  passes on a laptop and fails in CI for a reason nobody finds quickly.
+  `DATABASE_URL` in CI is `localhost:5432`, not 5433; 5433 is a host-collision
+  workaround on this machine only.
+- **A grep step failing the build if any `_test.go` names
+  `http.DefaultClient`.** `anakin.NoNetwork()` is enforcement by construction:
+  it only holds while tests inject it, and `http.DefaultClient` is the one way
+  around it that survives review.
 
   ```yaml
   - name: no test may use the default HTTP client
@@ -756,8 +767,21 @@ What the job needs:
       fi
   ```
 
-  It has to exit non-zero on a match, which is the opposite of `grep`'s default
-  in a shell step, so check the direction of that `if`.
+  It must exit non-zero **on a match**, which is the opposite of `grep`'s usual
+  direction in a shell step.
+
+**What you got right and I would not change.** `BP_FIXTURE_MODE: replay` at the
+job level. `go-version-file: go.mod`, which is how the job picks up Go 1.27,
+and 1.24 does not compile this repository. `go vet` as its own failing step
+rather than advisory. The tidy check. And the thing that matters most:
+
+**The job must be green for someone holding no key whatsoever**, and yours is.
+There is no `ANAKIN_API_KEY` and no `OPENAI_API_KEY` in the workflow, not as a
+secret, not as an empty string, not commented out. Keep it that way. A key
+present in the environment is a key a regression can spend, and 300 credits is
+the entire budget. A test that needs a credential is not a test configured
+wrong, it is a broken test, and I want the build to say so. That is not a
+nice-to-have, it is the whole arrangement.
 
 `anakin.NoNetwork()` is in `internal/anakin/nonetwork.go` and is itself tested
 (`TestNoNetworkRefusesEveryRoundTrip`). Its error names the URL that was
