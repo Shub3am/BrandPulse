@@ -31,6 +31,9 @@ Newest entry at the bottom of its section.
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
+| B2 (Tasks 4-8) | B1 | **Nothing in `internal/` exists except `models/`.** No `anakin`, `ids`, `hashing`, `redact`, `llm`, `db`, `stats`, `prompts`, `obs`, `a2a`, and no `internal/models/agentio.go`, so no `CollectInput`/`MentionBatch`. An adapter cannot compile against packages that are not there, and the contracts rule forbids me writing them in a worktree. Tasks 1, 2 and 3 are doc-and-data only and proceed; 4 through 8 cannot start. | open, **hard blocker** |
+| B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
+| B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -177,6 +180,94 @@ ships, because an alternate branch with no endpoint behind it is a branch
 nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
 that one point.
 
+### 2026-09-20 — B2 Task 1 — Wire field names, live. Open question #3 is closed.
+
+Full schemas, with the real JSON, are in
+[docs/research/wire-schemas.md](docs/research/wire-schemas.md). Commit that file
+before you write an adapter; it is the thing that stops nine agents each
+guessing. Spend: **9 of the ≤ 10 credit Task 1 budget**, 5 billed calls plus 3
+deliberate 400s, which Anakin does not bill.
+
+**The payload is two envelopes deep and the inner key changes per action.**
+This is the finding that matters. `GET /v1/wire/jobs/{id}` returns
+`{"job": {"data": {"data": {...}}}}`, and the array inside that second `data`
+is named differently by every action:
+
+| Action | Path to the array |
+|---|---|
+| `rt_search` | `job.data.data.posts` |
+| `yt_search` | `job.data.data.data` |
+| `am_search_products` | `job.data.data.products` |
+| `am_product_reviews` | `job.data.data.reviews` |
+
+Unmarshal one level short and Go gives you a struct of zero values **and a nil
+error**. That is an empty dashboard on stage with nothing in the logs. Decode
+the exact path or nothing.
+
+**`amazon` is dead as a mention source. It is not a budget cut, it is a
+correctness one.** `am_product_reviews` accepts only `asin`: no page, no limit,
+no sort. On `B0CZ426LLT` it returned 4 reviews of a stated 16 309, on
+`B0C7QHHT63` 6 of 14 401, and on all ten of them `title` and `text` were the
+empty string. A `Mention` built from that has `Text: ""`, so every Amazon
+mention hashes to the same `ContentHash` and dedupe collapses the lot to one
+row. Separately the catalogue is `amazon.com`, not `amazon.in`: prices in USD,
+reviewers in the UK, UAE, Italy and Australia. Wrong country and no text.
+B3, this removes a source from your labelled set, not a few rows.
+
+**Reddit carries no engagement numbers.** `score`, `upvote_ratio` and
+`num_comments` were null on all 15 posts of a `rt_search`, and the `selftext`
+tail shows why: the action reads Reddit's RSS. Recovering them means
+`rt_post_details` at 2 credits a post, 30 credits for counters nothing reads
+today. Decision: Reddit mentions ship with `Engagement` zeroed. **B4, the
+`influencer_mention` rule cannot fire on Reddit.** Do not treat a zero there as
+a measurement.
+
+**`country`, `freshness` and `date_range` on `/v1/search` are accepted and
+silently ignored.** HTTP 200 either way, so a green response proves nothing.
+Proof: under `freshness: "week"` a result came back dated 2022-09-14. Date
+filtering is therefore client-side on the `date` field, and `date` is sometimes
+the empty string. **An empty date must drop the mention.** Defaulting it to
+`time.Now()` is the quiet version of this bug: it would park old posts inside
+the 14-day window and poison every baseline `bp-detector` computes.
+
+**Amazon Wire actions cost 1 credit, not 2.** Reddit's seven actions cost 2,
+Amazon's fifteen `am_*` cost 1. More usefully, `credits_per_call` is a live
+field on the catalogue response, so `internal/anakin` should read the cost
+rather than carry a table that goes stale. §6 of
+[docs/research/anakin.md](docs/research/anakin.md) is corrected, and the
+recording estimate drops from ~136 to **~112**, ceiling ~182 of 300.
+
+**Correction to the `prompt` entry above.** That entry says
+"`docs/research/anakin.md` §3 documents the Search body as carrying a query".
+It does not, and never did: §3 already said `prompt`, at two places. `prompt`
+is confirmed live, sending `query` returns
+`400 {"error":"invalid_request","message":"Prompt is required"}`. Every other
+`query` in that file is a **Wire action parameter**, where `query` is the
+correct name, verified live on `rt_search`, `yt_search` and
+`am_search_products`. So the field name differs between the two surfaces and
+both docs were right. Nothing in `anakin.md` needed that fix; this note is the
+thing that was stale.
+
+Also settled cheaply: `/v1/search` `limit` is bounded 0 to 20, and the `snippet`
+is bigger than "snippet" suggests. The one I measured was **2 966 characters**,
+enough to classify without chaining the URL Scraper. That is why the blanket
+20-page scrape came out of the budget.
+
+### 2026-09-20 — B2 Task 1 — CONTRACTS §4 cannot compile as written
+
+§4 puts each adapter at a flat file in one package, `reddit.go`, `youtube.go`
+and so on, each exporting `Fetch`. The second one is a redeclaration error:
+`Fetch redeclared in this block`. The B2 brief already flagged it and told me
+to post the correction here.
+
+What I am building against, so B1 can confirm or rename rather than redesign:
+one directory per source, `internal/anakin/sources/reddit/`, each with
+`func Fetch(...)`, and `internal/anakin/sources/registry.go` holding the
+hand-written `var Registry = map[models.Source]Adapter{...}`. The `Adapter`
+signature itself is unchanged from §4 and I am not touching it. If B1 prefers
+one package, the fix is `FetchReddit`, `FetchYouTube` and so on, which is the
+same amount of work; what cannot survive is the current text.
+
 ---
 
 ## Open questions
@@ -189,8 +280,8 @@ The things nobody has verified yet. Claim one by putting your track in the
 | 1 | Which `a2a-go/v2` helper emits a **JSON** artifact? | B1, Task 1 | All nine agents need it. Lands as `a2a.JSONArtifact`. |
 | 2 | How is a peer agent addressed through the Nasiko proxy? The env var name is unverified. | B5, Task 1 | Lands as `a2a.Call`. No agent writes a peer URL directly. |
 | 7 | Do OTel traces from a self-instrumented Go container actually reach `nasiko observe`? | B5, Task 2 | If not, nine agents are invisible in the control plane. Deploy blocker, not polish. |
-| 3 | The literal field names in Wire responses per action. | B2, Task 1 | A guessed field name is an empty dashboard on stage. |
-| 4 | Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`? | B2, Task 2 | Decides six sources or seven. |
+| ~~3~~ | ~~The literal field names in Wire responses per action.~~ | ~~B2, Task 1~~ | **closed 2026-09-20**, see "Wire field names, live" above |
+| 4 | Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`? | B2, Task 2 | Decides five sources or six. Amazon is already out. |
 | 5 | Does DronaHQ's WhatsApp trigger send outbound, or do we need the Twilio connector? | B5, Task 7 | The 9am brief depends on it. Meta's 24-hour window may force a template. |
 | 6 | Does DronaHQ's Charts control expose the Plotly `hole` config for a donut? | B5, Task 6 | Cosmetic. Ship a pie if not. |
 
@@ -391,9 +482,10 @@ brackets and is replaced, never quietly promoted.
 
 | Number | Value | Source | Owner |
 |---|---|---|---|
-| Credits spent recording fixtures | _(est. ~136)_ | B2 Task 7 actual | B2 |
+| Credits spent on Task 1 schema reads | **9** | B2 Task 1, actual | B2 |
+| Credits spent recording fixtures | _(est. ~112, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
 | Mentions in the fixture corpus | — | `fixtures/` count | B2 |
-| Sources shipped | _(7, or 6 if Play probe fails)_ | B2 Task 2 | B2 |
+| Sources shipped | _(6, or 5 if the Play probe fails)_ | B2 Task 2 | B2 |
 | Sentiment accuracy | — | `go run ./eval/accuracy` | B3 |
 | Intent accuracy | — | `go run ./eval/accuracy` | B3 |
 | Cost per brand-day, cold | _(target < ₹15)_ | `go run ./eval/cost` | B3 |
