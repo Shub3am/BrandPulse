@@ -39,7 +39,7 @@ cover most of the gap. This is what BrandPulse actually ships:
 |---|---|---|
 | `reddit` | Wire `rt_search` + `rt_subreddit_posts` + `rt_post_details` | **Solid** |
 | `youtube` | Wire `yt_search` + `yt_comments` | **Solid** |
-| `amazon` | Wire `am_search_products` + `am_product_reviews` | **Solid** |
+| `amazon` | Wire `am_search_products` + `am_product_reviews` | **Dead as a mention source** — see below |
 | `news` | Search API, `prompt` scoped to brand + news terms | **Solid** |
 | `web` | Search API for blogs/forums, then URL Scraper for full text | **Solid** |
 | `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good** — public, documented, no ToS problem. Validate the feed returns data for the demo app before relying on it. |
@@ -81,10 +81,24 @@ chaining Search → URL Scraper (1 credit per URL), or possibly the separate
 `POST /v1/agentic-search` (10 credits + 1/URL). Budget accordingly: a news
 sweep that needs article bodies costs 3 + N credits, not 3.
 
-**UNVERIFIED:** country/locale and freshness/date-range parameters. Not found
-in the docs. If they do not exist, recency is filtered client-side on the
-`date` field, which means we pay for results we then discard. B2 checks this
-against a live call before designing the news adapter.
+**RESOLVED 2026-09-20 by B2 Task 1, live.** There are no country/locale or
+freshness parameters, and the API does **not** tell you so: `country`,
+`freshness` and `date_range` sent together returned **HTTP 200** and were
+silently ignored. The proof is in the results — with `freshness: "week"` set,
+the three results were dated 2025-01-29, empty, and 2022-09-14. So recency is
+filtered **client-side on `date`** and we pay for results we discard, which is
+the expensive branch this note feared. Two further consequences: a 200 never
+proves a parameter was honoured, and **`date` can be an empty string**, so a
+result with no parseable date is dropped rather than defaulted. Full evidence
+in [wire-schemas.md](wire-schemas.md) §6.
+
+**`limit` bounds confirmed live:** `limit: 999` returns
+`400 {"error":"invalid_request","message":"limit must be between 0 and 20"}`.
+
+**The `snippet` is bigger than this section implies.** One measured result was
+2 966 characters of cleaned page text, enough to classify sentiment, intent and
+aspects without chaining a scrape. The "3 + N credits" rule still applies where
+a body is genuinely needed, but the `web` adapter does not need it by default.
 
 ## 3. Wire
 
@@ -144,9 +158,20 @@ extracts the id.
 `am_product_details` (`asin*`), `am_product_reviews` (`asin*`) — "top product
 reviews with ratings, authors, dates".
 
-**UNVERIFIED across all three platforms:** the literal response field names.
-The catalog pages render prose descriptions, not example JSON. This is the
-single biggest unknown left.
+**RESOLVED 2026-09-20 by B2 Task 1**, live, for `rt_search`, `yt_search`,
+`am_search_products` and `am_product_reviews`. Schemas are in
+[wire-schemas.md](wire-schemas.md). `yt_comments` is the one action still
+unread, because Task 1's 10-credit budget ran out at 9. Two findings that
+change the build:
+
+- **The payload is two envelopes deep, at `job.data.data`**, and the array key
+  differs per action (`posts`, `data`, `products`, `reviews`). Unmarshalling one
+  level short yields zero values and no error.
+- **`am_product_reviews` returns 4–6 reviews out of ~15 000, every one with an
+  empty `text` and `title`.** Confirmed on two ASINs. A mention built from it
+  has no text to classify and no distinct content hash, so `amazon` cannot ship
+  as a mention source. The action also has no page, limit or sort parameter, so
+  there is no way to ask for more. Decision and fallout in `HACKATHON_NOTES.md`.
 
 **Mitigation, and B2's first task:** before writing any adapter, call
 `GET /v1/wire/catalog/{reddit,youtube,amazon}` with the real key — these are
@@ -209,32 +234,49 @@ Free tier **300 credits, no card, no expiry**. Failed calls are not billed.
 | URL scrape + AI summary / + AI JSON | 2 / 3 |
 | Crawl | 1 per page |
 | Map | 1 per job |
-| Wire Reddit / Amazon actions | 2 |
+| Wire Reddit actions (all 7) | 2 |
+| Wire Amazon `am_*` actions | **1** |
 | Wire `yt_comments` | 3 |
-| Wire `yt_search`, `yt_video`, `yt_channel` | 1 |
+| Wire `yt_search`, `yt_video`, `yt_channel`, `yt_related`, `yt_suggestions` | 1 |
 | Agentic Search | 10 + 1 per URL |
+
+Corrected 2026-09-20 by B2 Task 1: Amazon actions cost **1**, not 2. Every
+catalogue action carries a live `credits_per_call` field, so `internal/anakin`
+should read it rather than keep this table in code. Live action counts are
+Reddit 7, YouTube 6, Amazon 15.
 
 ### The recording budget
 
 B2's one live session, demo brand + 2 competitors:
 
+Revised 2026-09-20 after B2 Task 1. Three lines changed: Amazon is gone, the
+blanket URL-Scraper pass is gone because the Search `snippet` is already large
+enough to classify, and Task 1's own spend is now a real number.
+
 | Item | Calls | Credits |
 |---|---|---|
+| **Task 1 schema reads (spent)** | 5 billed + 3 free 400s | **9** |
+| Task 2 Play Store probe | 3 | 3 |
 | Onboard: map ×3 + crawl 20pp ×1 | 4 | ~23 |
 | Reddit `rt_search`, 3 queries × 3 brands | 9 | 18 |
 | YouTube `yt_search` ×3 + `yt_comments` ×6 | 9 | 21 |
 | News/web Search API, 10 queries | 10 | 30 |
-| URL Scraper on top 20 articles | 20 | 20 |
-| Amazon search ×3 + reviews ×6 | 9 | 18 |
+| URL Scraper, only where a snippet came back short | ~5 | 5 |
+| ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
 | App Store RSS ×3 | 3 | 3 |
-| Play Store probe ×3 | 3 | 3 |
-| **Subtotal** | | **~136** |
+| **Subtotal** | | **~112** |
 | Retry/headroom | | ~60 |
 | Reserved for the stage live call | | ~10 |
-| **Ceiling** | | **~206 of 300** |
+| **Ceiling** | | **~182 of 300** |
 
-Roughly 95 credits spare. `bp_core.budget.CreditBudget` enforces the ceiling;
-B2 prints a dry-run estimate before spending anything.
+Roughly 118 credits spare, up from 95, because Amazon and the blanket scrape
+came out. The client's `MaxCredits` ceiling enforces it (CONTRACTS §3,
+`anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate before spending
+anything.
+
+Corpus feasibility without Amazon: Reddit 9 searches × ~15 posts = ~135,
+YouTube 6 × `yt_comments` at `limit: 50` = up to 300, Search 10 × 20 = up to
+200. The Phase 2 gate of ≥ 300 mentions clears on Reddit and YouTube alone.
 
 Rate limits: most `POST` submits 60/min/user, `wire/task` 20/min/user, polling
 `GET`s unlimited but back off at ~1/sec/job. **UNVERIFIED at full-text level** —
