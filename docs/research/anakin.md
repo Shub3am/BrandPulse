@@ -43,15 +43,19 @@ cover most of the gap. This is what BrandPulse actually ships:
 | `news` | Search API, `prompt` scoped to brand + news terms | **Solid** |
 | `web` | Search API for blogs/forums, then URL Scraper for full text | **Solid** |
 | `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good** — public, documented, no ToS problem. Validate the feed returns data for the demo app before relying on it. |
-| `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing | **Probe** — reviews are JS-rendered. B2 spends ≤ 3 credits testing this early. If it fails, the source is dropped, not faked. |
+| `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing, parsing **`html`**, not `markdown` | **Low-yield, confirmed live** — text, star rating, date, review id and helpful count all extract cleanly, but a listing renders only **3 reviews** and no method moved that. [playstore-probe.md](playstore-probe.md) |
 | `x` | Search API scoped `site:x.com`, snippets only | **Degraded** — no engagement metrics, no follower counts. Ships as a low-yield source or is dropped. |
 | `instagram` | none | **Dropped** |
 | `flipkart` | Wire product data only, no reviews | **Dropped as a mention source** |
 
-Seven solid-to-good sources. The demo's "7 sources" claim survives; the
-Play Store review-bomb story depends on the probe. See
-[SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md) for the decision and its
-consequences for the pitch.
+**Six sources, not seven, and the count is settled** (updated 2026-09-20 after
+B2 Tasks 1 and 2): `reddit`, `youtube`, `news`, `web`, `appstore`, `playstore`.
+Amazon is out because its review text comes back empty, not because of budget.
+The Play Store **review-bomb story is dead** either way: the probe passed on
+field extraction and returned 3 reviews per listing, which is coverage, not a
+velocity signal. Do not build a demo beat on it.
+[SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md) still says seven and is stale;
+it lives on `main` and B7 owns the fix.
 
 **Nobody fabricates a source.** If the Play Store probe fails, the README and
 the pitch say six sources. Fixtures are recorded from real calls or the source
@@ -203,6 +207,28 @@ dashboard at demo time.
 Response carries `html`, `cleanedHtml`, `markdown`, `generatedJson`, `cached`,
 `durationMs`.
 
+**`actions` schema, confirmed live 2026-09-20 by B2 Task 2** at a cost of zero
+credits, from four deliberate 400s:
+
+| Type | Required field | Bounds |
+|---|---|---|
+| `wait` | `milliseconds` | 1 to 15 000 |
+| `wait_for` | `selector` | |
+| `click` | `selector` | |
+| `press` | `key` | |
+| `scroll` | none | |
+| `write` | UNVERIFIED, presumably `text` + `selector` | |
+
+`scroll` takes no required field, so `{"type":"scroll"}` is **valid** and bills
+a full scrape. That is how B2 spent a credit expecting a 400.
+
+**`cleanedHtml` is lossy in a way that matters.** On a Play Store listing it
+dropped the per-review star rating (an empty div carrying only an `aria-label`)
+and the reviewer name, while keeping the review bodies. Markdown dropped the
+rating too and reordered the date next to the developer's reply, where it reads
+as the reply date. Any adapter that needs attributes rather than text must take
+the full `html`. Detail in [playstore-probe.md](playstore-probe.md).
+
 Costs: 1 credit basic (browser rendering included, no surcharge), 2 with AI
 summary, 3 with AI JSON extraction. `useBrowser: true` is free — which is what
 makes the Play Store probe cheap enough to try.
@@ -255,24 +281,26 @@ enough to classify, and Task 1's own spend is now a real number.
 
 | Item | Calls | Credits |
 |---|---|---|
-| **Task 1 schema reads (spent)** | 5 billed + 3 free 400s | **9** |
-| Task 2 Play Store probe | 3 | 3 |
+| **Task 1 schema reads, spent** | 5 billed + 3 free 400s | **9** |
+| **Task 2 Play Store probe, spent** | 3 on the listing + 1 mistake | **4** |
 | Onboard: map ×3 + crawl 20pp ×1 | 4 | ~23 |
 | Reddit `rt_search`, 3 queries × 3 brands | 9 | 18 |
 | YouTube `yt_search` ×3 + `yt_comments` ×6 | 9 | 21 |
 | News/web Search API, 10 queries | 10 | 30 |
 | URL Scraper, only where a snippet came back short | ~5 | 5 |
-| ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
 | App Store RSS ×3 | 3 | 3 |
-| **Subtotal** | | **~112** |
+| Play Store listings ×3, `markdown`+`html` | 3 | 3 |
+| ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
+| **Task 7 recording subtotal** | | **~103** |
+| Spent already (Tasks 1 and 2) | | 13 |
 | Retry/headroom | | ~60 |
 | Reserved for the stage live call | | ~10 |
-| **Ceiling** | | **~182 of 300** |
+| **Ceiling** | | **~186 of 300** |
 
-Roughly 118 credits spare, up from 95, because Amazon and the blanket scrape
-came out. The client's `MaxCredits` ceiling enforces it (CONTRACTS §3,
-`anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate before spending
-anything.
+Roughly 114 credits spare, up from 95, because Amazon and the blanket 20-page
+scrape both came out. The client's `MaxCredits` ceiling enforces it
+(CONTRACTS §3, `anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate
+before spending anything.
 
 Corpus feasibility without Amazon: Reddit 9 searches × ~15 posts = ~135,
 YouTube 6 × `yt_comments` at `limit: 50` = up to 300, Search 10 × 20 = up to

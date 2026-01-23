@@ -268,6 +268,60 @@ signature itself is unchanged from §4 and I am not touching it. If B1 prefers
 one package, the fix is `FetchReddit`, `FetchYouTube` and so on, which is the
 same amount of work; what cannot survive is the current text.
 
+### 2026-09-20 — B2 Task 2 — the Play Store probe passes on fields and fails on volume. Six sources.
+
+Closes open question #4. Evidence and the sample markup are in
+[docs/research/playstore-probe.md](docs/research/playstore-probe.md). Spend
+**4 credits**, one over budget; the mistake is owned at the bottom of that file
+and in the numbers table below.
+
+**The fields are all there, in `html`, not in `markdown`.** Review text, star
+rating, review date, a stable UUID review id and the helpful count all extract
+1:1 from a single `useBrowser: true` scrape of the listing. Ask for
+`formats: ["markdown","html"]`, same 1 credit, parse the `html`, ignore the
+`markdown`.
+
+**Markdown alone would have shipped a bug that looked fine.** The star rating is
+an empty div carrying an `aria-label`, so every converter drops it: `out of 5`
+appears zero times in 11 925 characters of returned markdown. Worse, the review
+date does not vanish, it **moves**: markdown flattens it to directly under the
+developer's name and above the developer's reply, where any reader would call
+it the reply date. In the DOM they are two different elements. `cleanedHtml` is
+not a substitute either, it strips the rating and the reviewer name.
+
+**Volume is 3 reviews per listing and nothing moved it.** Plain listing: 3.
+`&showAllReviews=true`: 3, byte-identical markdown, that old trick is dead.
+Click "See all reviews" plus scrolls via the `actions` array: 3, though the
+click did fire (20 s to 40.5 s, HTML grew 14 KB). Play fills that dialog from an
+internal RPC on the dialog's own scroll container. Two retries, brief's cap,
+stop.
+
+**So the source count is six, and the review-bomb story is off the table.**
+`reddit`, `youtube`, `news`, `web`, `appstore`, `playstore`. **B5: the README
+and the pitch say six sources**, and neither should imply we watch Play Store
+review velocity, because at 3 reviews a run we do not. What `playstore` does
+give us is a real star rating, which only `appstore` otherwise has, and
+`Mention.Rating` is a `*float64` for exactly that reason.
+
+**B1, two things for `internal/anakin`.** First, the `actions` DSL is now
+known, free, from four deliberate 400s: `wait` (`milliseconds`, 1 to 15 000),
+`wait_for` (`selector`), `click` (`selector`), `press` (`key`), `scroll` (no
+field), `write` (unverified). Second, **`{"type":"scroll"}` is valid with no
+required field**, returns 200 and bills a scrape. That is the credit I lost, and
+the general lesson is that probing a schema with bad input is free only while
+the input stays bad.
+
+**The playstore adapter must error, never return an empty batch.** Its
+selectors are Google's obfuscated build output (`h3YV2d`, `bp9Aid`, `X5PpBb`,
+`iXRFPc`) and they rotate. A zero-review parse is indistinguishable from a quiet
+week unless the adapter says so out loud. Recorded fixtures keep `replay` green
+whatever Google does.
+
+Note for B3's labelled set: the three reviews came back 3/5, 2/5 and 1/5 on an
+app rated 4.6 overall. Play's default surface is "most helpful", which upvotes
+complaints. Useful for listening, but it is a sampling bias, not a sentiment
+collapse.
+
 ---
 
 ## Open questions
@@ -281,7 +335,7 @@ The things nobody has verified yet. Claim one by putting your track in the
 | 2 | How is a peer agent addressed through the Nasiko proxy? The env var name is unverified. | B5, Task 1 | Lands as `a2a.Call`. No agent writes a peer URL directly. |
 | 7 | Do OTel traces from a self-instrumented Go container actually reach `nasiko observe`? | B5, Task 2 | If not, nine agents are invisible in the control plane. Deploy blocker, not polish. |
 | ~~3~~ | ~~The literal field names in Wire responses per action.~~ | ~~B2, Task 1~~ | **closed 2026-09-20**, see "Wire field names, live" above |
-| 4 | Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`? | B2, Task 2 | Decides five sources or six. Amazon is already out. |
+| ~~4~~ | ~~Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`?~~ | ~~B2, Task 2~~ | **closed 2026-09-20**, yes from `html`, but only 3 reviews a listing. Six sources. |
 | 5 | Does DronaHQ's WhatsApp trigger send outbound, or do we need the Twilio connector? | B5, Task 7 | The 9am brief depends on it. Meta's 24-hour window may force a template. |
 | 6 | Does DronaHQ's Charts control expose the Plotly `hole` config for a donut? | B5, Task 6 | Cosmetic. Ship a pie if not. |
 
@@ -482,10 +536,12 @@ brackets and is replaced, never quietly promoted.
 
 | Number | Value | Source | Owner |
 |---|---|---|---|
-| Credits spent on Task 1 schema reads | **9** | B2 Task 1, actual | B2 |
-| Credits spent recording fixtures | _(est. ~112, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
+| Credits spent on Task 1 schema reads | **9** of ≤ 10 | B2 Task 1, actual | B2 |
+| Credits spent on the Play Store probe | **4** of 3, one over, see the Task 2 entry | B2 Task 2, actual | B2 |
+| Credits spent recording fixtures | _(est. ~103, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
 | Mentions in the fixture corpus | — | `fixtures/` count | B2 |
-| Sources shipped | _(6, or 5 if the Play probe fails)_ | B2 Task 2 | B2 |
+| Sources shipped | **6** | B2 Task 2, settled | B2 |
+| Play Store reviews per listing per run | **3** | B2 Task 2, actual | B2 |
 | Sentiment accuracy | — | `go run ./eval/accuracy` | B3 |
 | Intent accuracy | — | `go run ./eval/accuracy` | B3 |
 | Cost per brand-day, cold | _(target < ₹15)_ | `go run ./eval/cost` | B3 |
