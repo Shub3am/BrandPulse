@@ -322,6 +322,64 @@ app rated 4.6 overall. Play's default surface is "most helpful", which upvotes
 complaints. Useful for listening, but it is a sampling bias, not a sentiment
 collapse.
 
+### 2026-09-20 — B2 Task 3 — the demo brand is boAt. Two traps came with it.
+
+`demo/brand.json` is committed. It decodes into `models.BrandProfile` with
+`DisallowUnknownFields` and passes `Validate()`; all six `Source` values return
+`Valid() == true`. Spend for this task: **4 credits**, two `rt_search` calls.
+
+| Field | Value |
+|---|---|
+| `brand_id` | `boat-lifestyle` |
+| `name` | boAt (Imagine Marketing Limited) |
+| `website` | https://www.boat-lifestyle.com/ |
+| `competitors` | Noise, boult |
+| `sources` | reddit, youtube, news, web, appstore, playstore |
+| `source_handles.playstore` | `com.boAt.hearables` |
+| `source_handles.appstore` | `6475390290` |
+| `source_handles.amazon` | `B0CZ426LLT` |
+
+Why boAt: the discourse is already proven, not assumed. Task 1's `rt_search`
+returned 15 real posts, `yt_search` returned review videos with comment threads,
+and the two ASINs carry 16 309 and 14 401 reviews. The Play listing has 2.7L
+reviews and 1Cr+ downloads. Nothing here is a hope.
+
+**Trap 1: `match: true` on `rt_search` is a phrase filter and it returns a
+silent zero.** The query `"boAt vs Noise vs boult earbuds"` returned
+`post_count: 0`, `posts: []`, `error: null` and **`posts_dropped_by_filter:
+22`**. Reddit found 22 posts and the client-side filter discarded all of them,
+because it wants the entire query string present in the post. **B2's own
+adapter and anyone else touching Wire: one brand term per call, and read
+`posts_dropped_by_filter`.** Zero posts with a non-zero drop count means the
+query was too specific; zero with a zero drop count means Reddit had nothing.
+Those are different incidents and the response already tells them apart.
+
+**Trap 2: the brand names are polluted, and `NegativeKeywords` is now
+load-bearing rather than decorative.** A single-token `rt_search` for `boult`
+returned 19 posts of which most were cricket, because Trent Boult is a New
+Zealand fast bowler: r/Cricket, r/CricketShitpost, r/RCB, "ETPL FINAL" threads.
+Exactly one of the top twelve was about the audio brand. "boAt" has the same
+problem with actual boats and "Noise" with the English word. So `keywords` are
+all phrases (`boAt Airdopes`, `boAt Rockerz`, never bare `boAt`) and
+`negative_keywords` carries 13 terms covering cricket and sailing. **B3: this
+is a real precision problem in the labelled set, not a tidy demo of a feature.**
+
+**`source_handles.appstore` is boAt Shopping, not boAt Hearables, and that is
+deliberate.** Apple's review RSS returns **zero entries for boAt Hearables**,
+for boAt Wearables, for NoiseFit and for both GOBOULT apps, while returning 36
+for boAt Shopping and 50 for Zomato. Three identical attempts each, so it is
+deterministic, not flaky, and it has nothing to do with popularity: NoiseFit
+has 122 244 ratings and returns nothing. The table is in
+[docs/research/anakin.md](docs/research/anakin.md) §1. **B1 and B5: validate
+every App Store id by fetching it once before it goes into a profile**, because
+the feed returns HTTP 200 and a well-formed envelope with the `entry` key
+simply absent, which decodes to an empty slice and looks identical to "no
+reviews this week".
+
+The `amazon` ASIN is in `source_handles` because the brief asked for it and it
+is a useful reference, but `amazon` is deliberately **not** in `sources`. See
+the Task 1 entry for why.
+
 ---
 
 ## Open questions
@@ -538,6 +596,8 @@ brackets and is replaced, never quietly promoted.
 |---|---|---|---|
 | Credits spent on Task 1 schema reads | **9** of ≤ 10 | B2 Task 1, actual | B2 |
 | Credits spent on the Play Store probe | **4** of 3, one over, see the Task 2 entry | B2 Task 2, actual | B2 |
+| Credits spent picking the demo brand | **4**, two `rt_search` calls | B2 Task 3, actual | B2 |
+| **Credits spent, running total** | **17 of 300** | B2 | B2 |
 | Credits spent recording fixtures | _(est. ~103, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
 | Mentions in the fixture corpus | — | `fixtures/` count | B2 |
 | Sources shipped | **6** | B2 Task 2, settled | B2 |

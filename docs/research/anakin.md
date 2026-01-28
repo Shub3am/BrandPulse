@@ -42,7 +42,7 @@ cover most of the gap. This is what BrandPulse actually ships:
 | `amazon` | Wire `am_search_products` + `am_product_reviews` | **Dead as a mention source** — see below |
 | `news` | Search API, `prompt` scoped to brand + news terms | **Solid** |
 | `web` | Search API for blogs/forums, then URL Scraper for full text | **Solid** |
-| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good** — public, documented, no ToS problem. Validate the feed returns data for the demo app before relying on it. |
+| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good, but per-app. Validate every app id before you trust it** — the feed is alive and returns full fields, yet it comes back with **no `entry` key at all** for many real apps. Measured below. |
 | `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing, parsing **`html`**, not `markdown` | **Low-yield, confirmed live** — text, star rating, date, review id and helpful count all extract cleanly, but a listing renders only **3 reviews** and no method moved that. [playstore-probe.md](playstore-probe.md) |
 | `x` | Search API scoped `site:x.com`, snippets only | **Degraded** — no engagement metrics, no follower counts. Ships as a low-yield source or is dropped. |
 | `instagram` | none | **Dropped** |
@@ -56,6 +56,45 @@ field extraction and returned 3 reviews per listing, which is coverage, not a
 velocity signal. Do not build a demo beat on it.
 [SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md) still says seven and is stale;
 it lives on `main` and B7 owns the fix.
+
+### The Apple review RSS is per-app, and a healthy-looking response can be empty
+
+Measured 2026-09-20 by B2 Task 3, `in` storefront, `sortBy=mostRecent`, three
+identical attempts each, deterministic. All HTTP 200, all a well-formed feed
+envelope with `author`, `updated`, `title`, `link`, `id`:
+
+| App | id | entries |
+|---|---|---|
+| boAt Hearables | 1592550875 | **0** |
+| boAt Wearables | 1542443145 | **0** |
+| boAt Shopping | 6475390290 | 36 |
+| NoiseFit | 1498457147 | **0** |
+| NoiseFit Track | 1573689962 | 50 |
+| GOBOULT Amp | 6476545014 | **0** |
+| GOBOULT Fit | 1629163626 | **0** |
+| Zomato, control | 434613896 | 50 |
+| Nykaa, control | 1479127399 | **0** |
+
+There is no pattern by popularity: NoiseFit has 122 244 ratings and returns
+nothing, NoiseFit Track has 948 and returns 50. Nykaa returns nothing. It is
+not flakiness either, three runs gave identical counts. `sortBy=mostHelpful`
+made no difference, and `us` on a busy app was also 0 where `in` was 50.
+
+**The failure mode is what matters: the `entry` key is absent, not empty.** In
+Go `len(feed.Entry) == 0` after a successful decode looks exactly like an app
+with no reviews. So:
+
+- **Validate an app id by fetching it once, before it goes in a
+  `BrandProfile.SourceHandles`.** An id that returns nothing today returns
+  nothing on stage.
+- The `appstore` adapter returns an error on a zero-entry feed, the same rule
+  as `playstore`. A source that quietly contributes nothing is worse than one
+  that fails loudly.
+
+Where it works it is the best-shaped source we have: `im:rating`, `im:version`,
+`updated` (RFC 3339), `author.name`, a numeric `id`, `title`, `content`,
+`im:voteSum` and `im:voteCount`. That is a complete `Mention` including
+`Rating` and `Engagement`, from a free public endpoint.
 
 **Nobody fabricates a source.** If the Play Store probe fails, the README and
 the pitch say six sources. Fixtures are recorded from real calls or the source

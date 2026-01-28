@@ -44,9 +44,32 @@ That `data` is **not** the payload. It is a second envelope:
          "envelope_version":"v1"}}
 ```
 
-So the real payload is at **`job.data.data`**, and the array inside it is keyed
-differently per action. Unmarshal one level short and you get a struct of zero
-values with no error, which is the empty dashboard this task exists to prevent.
+So the real payload is two `data` hops down from the poll response root, and
+the array inside it is keyed differently per action. Unmarshal one level short
+and you get a struct of zero values with no error, which is the empty dashboard
+this task exists to prevent.
+
+**There is no `job` key.** Where this file and HACKATHON_NOTES write
+`job.data.data`, "job" names the poll *response*, not a field. Verified
+2026-09-20: the poll response's top-level keys are exactly
+`["credits_used", "data", "execution_ms", "status"]`. In Go that is
+
+```go
+var resp struct {
+    Status      string `json:"status"`
+    CreditsUsed int    `json:"credits_used"`
+    ExecutionMS int    `json:"execution_ms"`
+    Data        struct {
+        Status string          `json:"status"`
+        Error  *string         `json:"error"`
+        Data   json.RawMessage `json:"data"` // the per-action payload
+    } `json:"data"`
+}
+```
+
+and the per-action struct is unmarshalled from `resp.Data.Data`. Read
+`credits_used` off the poll response rather than assuming the catalogue price;
+it is the only number that is actually true.
 
 | Action | Path to the array |
 |---|---|
@@ -84,7 +107,29 @@ Params (live, with defaults): `query*`, `sort=relevance`, `time=all`,
 
 `match` is documented in the catalogue as a client-side keyword filter and is
 the reason it exists: *"required for reliable keyword/brand monitoring because
-Reddit's sort=new ignores the query server-side."* Leave it `true`.
+Reddit's sort=new ignores the query server-side."*
+
+**`match: true` is a phrase filter, and it returns a silent zero.** Measured
+2026-09-20 during Task 3. The query `"boAt vs Noise vs boult earbuds"` came
+back with `post_count: 0`, `posts: []`, `error: null`, **and
+`posts_dropped_by_filter: 22`**. Reddit returned 22 posts and the filter threw
+away every one, because it wants the whole query string present in the post,
+not any of its terms.
+
+Two rules follow, and neither is optional:
+
+1. **One brand term per call.** A multi-word comparison query is a guaranteed
+   empty result. Share of voice is N searches, not one clever search.
+2. **The adapter must read `posts_dropped_by_filter` and log it.** `post_count:
+   0` with a non-zero drop count means "the query was too specific", and
+   `post_count: 0` with a zero drop count means "Reddit had nothing". Those are
+   different problems and the response distinguishes them. An adapter that
+   reads only `posts` reports a quiet week during an outage.
+
+The response also carries `subreddits[]`, a parallel array of full subreddit
+objects (id, title, public_description, url, created_utc). Nothing in
+`models.Mention` has a home for it, so ignore it, but know it is most of the
+response size.
 
 ```json
 {"query":"boAt Airdopes","sort":"new","time":"month","limit":25,"match":true,
