@@ -472,6 +472,32 @@ type Alert struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// NewAlert returns an alert in the only status a detector may create, with its
+// slices ready.
+//
+// Kind, severity and dedupe key are arguments rather than defaults because
+// there is no safe default for any of them: dedupe_key backs a NOT NULL unique
+// constraint, and a rule that fired knows its own kind and severity. CreatedAt
+// is an argument for the same reason bp-detector takes Now as an input — a
+// replayed run must produce the same alert it produced live, and a constructor
+// that read the clock would break that.
+//
+// Evidence starts empty and Validate rejects it that way: every alert must
+// show the numbers that fired it.
+func NewAlert(id, brandID string, kind AlertKind, severity Severity, dedupeKey string, createdAt time.Time) Alert {
+	return Alert{
+		ID:             id,
+		BrandID:        brandID,
+		Kind:           kind,
+		Severity:       severity,
+		Evidence:       []AlertEvidence{},
+		SampleMentions: []Mention{},
+		Status:         AlertStatusOpen,
+		DedupeKey:      dedupeKey,
+		CreatedAt:      createdAt,
+	}
+}
+
 func (a Alert) Validate() error {
 	if a.ID == "" || a.BrandID == "" {
 		return fmt.Errorf("models: Alert.id and brand_id are required")
@@ -617,6 +643,24 @@ type DailyBrief struct {
 	// WhatsappShort is at most WhatsappShortLimit characters, with no markdown
 	// tables and no links.
 	WhatsappShort string `json:"whatsapp_short"`
+}
+
+// NewDailyBrief returns a brief for one period with its slices ready, which is
+// also the correct shape for a period in which nothing happened.
+//
+// It fills no text. Headline, Markdown and WhatsappShort come from the
+// briefer's one LLM call, and Numbers is computed deterministically before
+// that call rather than asked of the model.
+func NewDailyBrief(brandID string, periodStart, periodEnd time.Time) DailyBrief {
+	return DailyBrief{
+		BrandID:          brandID,
+		PeriodStart:      periodStart,
+		PeriodEnd:        periodEnd,
+		TopTopics:        []Topic{},
+		Alerts:           []Alert{},
+		CompetitorWatch:  []string{},
+		SuggestedActions: []string{},
+	}
 }
 
 func (b DailyBrief) Validate() error {

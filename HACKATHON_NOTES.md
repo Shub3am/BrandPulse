@@ -20,18 +20,19 @@ Newest entry at the bottom of its section.
 
 | Raised by | Blocked on | What I need | Status |
 |---|---|---|---|
-| B2, B3, B4 | B1 | the `internal/` import surface as compiling signatures, on `main` | open, **B1 Task 1, twenty minutes** |
+| ~~B2, B3, B4~~ | ~~B1~~ | ~~the `internal/` import surface as compiling signatures~~ | **closed 2026-09-20**, B1 Task 1, see "the import surface is up" below |
 | B2, B3, B4 | B1 | `internal/anakin` with working `replay` mode | open |
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
-| B6 | B1 | `internal/models/agentio.go`. It is specified in CONTRACTS §2 and has no Go source, so every envelope shape the BFF returns is unverifiable today. | open, **B1 Task 1** |
+| ~~B6~~ | ~~B1~~ | ~~`internal/models/agentio.go`, so the BFF's envelope shapes are unverifiable~~ | **closed 2026-09-20**, the file exists and compiles |
 | B5 | **you** | Nasiko CLI login. `ANAKIN_API_KEY` and `DRONAHQ_API_KEY` are now in `.env` in all seven checkouts, but there is still no Nasiko credential, so `nasiko deploy` cannot authenticate and not one of the nine agents can go live. | open, **hard blocker on deploy** |
 | B5 | **you** | The **DronaHQ host URL** for our account. The only documented form is `https://<your-dronahq-host>/...`. Read it off the API Keys screen. Until then `DRONAHQ_API_KEY` cannot be used against anything. | open |
 | ~~B5~~ | ~~you~~ | ~~Meta for Developers account, Twilio account, WhatsApp template approval~~ | **closed 2026-09-20**, WhatsApp is out of the MVP, see the scope decision below |
 | B5 | **you** | No deploy pipeline. `.github/workflows/` is empty and the repo rule is "deploy through the automated pipeline". Either we build one in Phase 4 or we agree the hackathon deploys by CLI and say so. | open, needs a ruling |
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
-| B2 (Tasks 4-8) | B1 | **Nothing in `internal/` exists except `models/`.** No `anakin`, `ids`, `hashing`, `redact`, `llm`, `db`, `stats`, `prompts`, `obs`, `a2a`, and no `internal/models/agentio.go`, so no `CollectInput`/`MentionBatch`. An adapter cannot compile against packages that are not there, and the contracts rule forbids me writing them in a worktree. Tasks 1, 2 and 3 are doc-and-data only and proceed; 4 through 8 cannot start. | open, **hard blocker** |
+| ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
+| ~~B2 (Tasks 4-8)~~ | ~~B1~~ | ~~Nothing in `internal/` exists except `models/`, so an adapter cannot compile~~ | **closed 2026-09-20**, `73ef873` merged into `track/b2-collect` |
 | B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
 | B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
 
@@ -45,6 +46,34 @@ blocker row and why it comes before B1's own implementation.
 
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
+
+### 2026-09-20 — main — B1's import surface is on `main` at `73ef873`. Merge it.
+
+B2, B3 and B4: you were blocked on this. `main` now carries `internal/a2a`,
+`anakin`, `db`, `hashing`, `ids`, `llm`, `models` (including `agentio.go`),
+`obs`, `prompts`, `redact` and `stats`, plus the CONTRACTS §3 signature edits.
+Run `git merge main` in your worktree and drop whatever you were compiling
+against in the meantime.
+
+**B4 specifically**: your `chore(scaffold): stand in for B1's import surface so
+B4 can compile` is now duplicate. Delete the scaffold in the same commit that
+merges `main`, do not leave two definitions of the same surface in the tree.
+
+What was verified before the merge landed, and what was not:
+
+```
+go build ./...   exit 0
+go vet ./...     exit 0
+BP_FIXTURE_MODE=replay go test ./...
+    all 11 internal packages: [no test files]
+```
+
+So it compiles and vets. **Nothing was tested**, because `parity_test.go` is
+still uncommitted in B1's worktree. Do not read this merge as a green suite.
+
+This was merged by the coordinating session, not by B7, because B7 runs at the
+end and four tracks were not going to wait that long. `main` is still
+single-writer, see the section above.
 
 ### 2026-09-20 — main — SCOPE CHANGE: WhatsApp is out of the MVP. Read this if you are mid-task.
 
@@ -379,6 +408,69 @@ reviews this week".
 The `amazon` ASIN is in `source_handles` because the brief asked for it and it
 is a useful reference, but `amazon` is deliberately **not** in `sources`. See
 the Task 1 entry for why.
+### 2026-09-20 — B1 — the import surface is up: `brandpulse/internal/...` compiles
+
+`go build ./... && go vet ./...` are both green. Every package named in
+CONTRACTS §3 now exists with its real signature.
+
+**It is on `track/b1-core`, not yet on `main`.** B1's brief said to commit
+straight to `main`; the commit above this one on `main` says B7 owns `main` and
+B1 lands through B7, and the later instruction wins. The branch is rebased onto
+`main@260d234` so the merge is `--ff-only` with nothing to resolve. Until B7
+runs it, `git merge track/b1-core` into your own branch and start now rather
+than waiting.
+
+**Every body panics with `not implemented`.** That is deliberate and it is the
+one place in this repo a stub is correct: it is a compile target. Nothing here
+works yet, and a stub that returned a plausible zero value would let you build
+on an empty slice and discover it on stage. If you call one you will get a
+panic naming the package, which is the answer you want today.
+
+Two exceptions, because they could not honestly panic:
+
+- **`internal/prompts` is fully implemented.** `Guardrails` is a package-level
+  `var`, and a `var` has no body to panic in. Leaving it nil would have been a
+  silent empty guardrail list, which is worse than anything else on this page.
+  `prompts.Load(name)` reads the embedded FS and is real. B1 Task 9 is
+  therefore already done; adding your agent's prompt `.md` to that package is
+  yours, and it is a recompile, not a config reload.
+- **`models.NewAlert` and `models.NewDailyBrief` are real.** They are pure
+  schema like the rest of `models`, and a constructor that panics is not a
+  compile target, it is a landmine.
+
+**What changed in CONTRACTS §3, land it in your head before you write a
+`main()`:**
+
+| Change | Why |
+|---|---|
+| `a2a.Serve[In, Out any](card, h)` and `a2a.Handler[In, Out]` are now generic | §4 gives every agent `Handle(ctx, <Name>Input) (<Output>, error)`. Adapting that to one SDK executor interface needs type parameters. Inference makes your call site `a2a.Serve(card, handler)` unchanged — you write no type argument. |
+| `a2a.LoadCard(path) (Card, error)` added | You need a `Card` from somewhere and you must not build one by hand. It also rejects `protocolVersion != "1.0"` at load rather than at deploy. |
+| `llm.Opt` now has fields: `{Model string; MaxTokens int}` | §3 named the type without them. Both are optional; a zero `Model` defers to the router's per-agent `nasiko llm-config`. |
+| `anakin.NoNetwork() *http.Client` added | The no-network guarantee is a package, not a CI setting, because Go has no `pytest-socket`. Inject it in every test. Still a stub until B1 Task 12. |
+| `models.NewAlert` / `NewDailyBrief` signatures printed | Both take their timestamps as arguments and read no clock, same reason `DetectInput` carries `Now`. |
+
+**`anakin.NewHTTPClient` is the `cfg Config` form from §3, not the positional
+form the B1 brief sketches.** §3 is what five tracks compile against, so §3
+wins. `Config` carries everything the positional version did plus `MaxCredits`,
+which is the ceiling the collector binds per call.
+
+**Two corrections the B1 brief predicted that turned out not to be needed:**
+CONTRACTS §0 already says `redact.PII`, not `RedactPII`, and §3's import block
+already excludes `internal/cluster` and already says in prose that it is B3's.
+Both docs are correct as written; nothing to fix. `internal/cluster` does not
+exist and B1 will not create it — B3 builds it as their Task 1.
+
+**Answer to Open question 1, partially.** `a2a-go/v2` v2.5.0 resolves and the
+module path in CONTRACTS is right. Two findings for whoever wires an agent:
+the card type is **`a2a.AgentCard` in package
+`github.com/a2aproject/a2a-go/v2/a2a`**, not `a2asrv.AgentCard` as the B1 brief
+says, and that package name collides with our own `internal/a2a`, so it needs
+an import alias. The server side is `a2asrv.NewHandler` + `NewJSONRPCHandler`
+registered on a stdlib mux, and the well-known card path is
+`a2asrv.WellKnownAgentCardPath`. **The SDK is not yet imported anywhere**:
+`internal/a2a` is stdlib-only for now so this commit could land in minutes, and
+pulling in its grpc and protobuf dependencies is B1 Task 11. `a2a.JSONArtifact`
+still has no verified SDK helper behind it; question 1 stays open.
 
 ---
 
@@ -568,20 +660,28 @@ somebody follows.
 
 ---
 
-## B7 now owns `main`. Nobody else commits there.
+## `main` has one writer at a time, and B7 takes it last
 
-From this commit on, the primary checkout
-`/Users/shubhamvs/Desktop/anakin-hack/brandpulse` and the `main` branch belong
-to B7 alone. Every scope change, doc fix and contract edit up to here was landed
-on `main` from that same checkout, which was safe only because B7 had not
-started. Two writers on one working tree is uncommitted work destroyed, not a
-merge conflict, because git cannot help with edits it has never seen.
+B7 runs at the end, not alongside B1 through B6. Until it starts, the primary
+checkout `/Users/shubhamvs/Desktop/anakin-hack/brandpulse` and the `main` branch
+stay with the coordinating session, which is where every scope change and doc
+fix so far was landed. The moment B7 starts, that checkout is B7's alone and the
+coordinating session stops writing to it.
+
+Either way the rule is one writer. Two writers on one working tree is
+uncommitted work destroyed, not a merge conflict, because git cannot help with
+edits it has never seen.
+
+**Consequence of B7 starting late, stated plainly:** `.github/workflows/` is
+empty and stays empty until then, so nothing is checking that B1 through B6
+still build together. Four branches have already diverged. The first time
+anyone finds out is at merge time, all at once.
 
 So: if you are B1 through B6 and you need something changed on `main`, you do
-not go and change it. You add a row to "Open blockers" naming B7, or you open
-the PR and let B7 merge it. B1 still owns `internal/models`, `001_init.sql` and
-`CONTRACTS.md`, and still lands them through a PR that B7 merges. The contracts
-rule did not move, the write path to `main` did.
+not go and change it. You add a row to "Open blockers", or you open the PR.
+B1 still owns `internal/models`, `001_init.sql` and `CONTRACTS.md` and still
+lands them through a PR. The contracts rule did not move, only the question of
+who holds the write path to `main` at a given hour.
 
 Merge order is B1, B2, B3, B4, B6, B5, green between each.
 

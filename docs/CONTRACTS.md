@@ -451,6 +451,9 @@ func redact.PII(text string) string
 func llm.ChatJSON(ctx context.Context, prompt string, schema any, opt llm.Opt) (json.RawMessage, llm.Usage, error)
 func llm.Embed(ctx context.Context, texts []string, model string) ([][]float32, error)
 type llm.Usage struct { PromptTokens, CompletionTokens int; CostPaise float64 }
+type llm.Opt   struct { Model string; MaxTokens int }   // both optional; zero Model
+                                                        // defers to the router's
+                                                        // per-agent llm-config
 
 func stats.ZScore(value, mean, std float64) float64
 func stats.ComputeBaseline(ctx context.Context, brandID string, days int, now time.Time) (models.BaselineStats, error)
@@ -463,8 +466,16 @@ var  prompts.Guardrails []string
 func obs.Setup(serviceName string) (shutdown func(context.Context) error, err error)
 
 // Serve wires a handler to the A2A SDK. Every agent's main() ends in this.
-func a2a.Serve(card a2a.Card, h a2a.Handler) error
+// The type parameters are inferred from h, so the call site stays exactly
+// a2a.Serve(card, handler) and no agent writes a type argument.
+type a2a.Handler[In, Out any] interface { Handle(context.Context, In) (Out, error) }
+func a2a.Serve[In, Out any](card a2a.Card, h a2a.Handler[In, Out]) error
 func a2a.JSONArtifact(name string, v any) (a2a.Artifact, error)
+
+// LoadCard reads an agent's AgentCard.json and rejects a protocolVersion other
+// than "1.0". No agent builds a Card by hand, which is what lets internal/a2a
+// reconcile a2a.Card with the SDK's own card type without changing a main().
+func a2a.LoadCard(path string) (a2a.Card, error)
 
 // Call reaches a peer agent through the Nasiko proxy. bp-orchestrator is the
 // only caller. No agent constructs a peer URL: the proxy address and the
@@ -477,6 +488,18 @@ which B4 needs, `models.NewAlert` and `models.NewDailyBrief`, matching the
 shape of the six already there. The repo rule is "construct through the `New*`
 constructor", and right now that rule is unsatisfiable for exactly the two
 types B4 produces.
+
+```go
+func models.NewAlert(id, brandID string, kind AlertKind, severity Severity,
+    dedupeKey string, createdAt time.Time) Alert
+func models.NewDailyBrief(brandID string, periodStart, periodEnd time.Time) DailyBrief
+```
+
+Neither reads the clock, for the same reason `DetectInput` carries `Now`: a
+replayed run must produce the alert it produced live. `NewAlert` leaves
+`Evidence` empty and `Validate` rejects it that way, because an alert that
+cannot show the numbers that fired it is the one thing this detector may not
+emit.
 
 ### anakin.Client
 
@@ -556,7 +579,15 @@ from `fixtures/` instead of the network.
 CI runs with zero credits and zero API keys. Any test that needs the network is
 a broken test. Go has no `pytest-socket`; B1 enforces it instead by making
 `HTTPClient` take an `*http.Client` and CI injecting one whose `Transport`
-returns an error on every call.
+returns an error on every call. That client is published here so there is one
+implementation rather than the same eight lines in six worktrees:
+
+```go
+func anakin.NoNetwork() *http.Client
+```
+
+Every track's tests inject it. It is the whole of the no-network guarantee, so
+a test that does not use it is a test that can spend a credit.
 
 ---
 
