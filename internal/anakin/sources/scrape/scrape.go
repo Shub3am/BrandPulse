@@ -4,12 +4,10 @@
 // share one definition of the response. The shape is documented in
 // docs/research/anakin.md §4.
 //
-// UNVERIFIED: whether the response arrives at the top level or inside an
-// envelope. internal/anakin strips the Wire job envelope before an adapter
-// sees a Wire payload, and this package assumes it does the same here. The
-// first live Scrape of Task 7 settles it, and settling it wrong is a one-line
-// fix in this file rather than a change in three adapters. That is the whole
-// reason this package exists rather than three copies of the struct.
+// POST /v1/url-scraper/scrape returns these fields at the top level with no
+// envelope, read live on 2026-09-20. The one assumption left is that
+// internal/anakin passes the body through, which is what it does for Wire once
+// the job envelope is off.
 package scrape
 
 import (
@@ -24,7 +22,16 @@ import (
 // in an aria-label on an empty div, and the reviewer name. Markdown drops the
 // rating too and reorders the review date next to the developer's reply. An
 // adapter that needs an attribute rather than a text node must take HTML.
+//
+// The same holds for a URL that serves JSON rather than a page, measured on the
+// App Store review feed on 2026-09-20. Only html carries the document verbatim:
+// markdown escapes `[` as `\[` and cleanedHtml turns every quote into `&#34;`,
+// so both are JSON-shaped text that json.Unmarshal rejects.
 type Response struct {
+	ID            string          `json:"id"`
+	Status        string          `json:"status"`
+	URL           string          `json:"url"`
+	Country       string          `json:"country"`
 	HTML          string          `json:"html"`
 	CleanedHTML   string          `json:"cleanedHtml"`
 	Markdown      string          `json:"markdown"`
