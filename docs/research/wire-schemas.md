@@ -19,6 +19,11 @@ here, and a field not listed here does not exist.
 Three `POST /v1/search` probes returned 400 and were **not billed**, which is
 how the field name and the `limit` bounds were settled for free.
 
+**Task 4 added 4 more credits** to close the schemas Task 1 could not afford:
+`yt_comments` for 3 (§4) and one URL Scraper call for 1, which settled both the
+App Store feed and the scraper's own response envelope. Running total across
+Tasks 1 to 4 is 21 of 300; the per-task breakdown lives in research/anakin.md §6.
+
 ---
 
 ## 1. The job envelope, and the double nesting that will bite you
@@ -169,7 +174,7 @@ two keywords hashes differently. Strip from `"  submitted by   /u/"` onward.
 Use `title + "\n" + selftext` as `Mention.Text`: 3 of 15 posts had a title
 carrying the complaint and a thin body.
 
-## 4. YouTube — `yt_search`
+## 4. YouTube — `yt_search` and `yt_comments`
 
 Params: `query*`, `limit`.
 
@@ -200,11 +205,72 @@ Two fields are unusable as-is:
 URL. research/anakin.md §3 says "takes a video id, not a URL — the adapter
 extracts the id"; no extraction is needed on this path.
 
-**`yt_comments` is not schema-read.** It costs 3 credits and the budget was
-exhausted at 9. It is the one adapter that must still be written against a
-hand-written fixture and verified on the first live call of Task 7. Its
-catalogue params are `video_id*`, `limit=50`, `include_replies=true`,
-`sort=top`. Carry this as the one open schema.
+### `yt_comments`, read live in Task 4
+
+Task 1 left this open: "it costs 3 credits and the budget was exhausted at 9,
+so it must be written against a hand-written fixture and verified on the first
+live call of Task 7". That is no longer true. It was read live on **2026-09-20**
+for 3 credits against `video_id=zLXOfWalsMk`, the first video `yt_search`
+returned in §4 above, and the adapter is written against the real shape. **No
+YouTube schema is open.**
+
+Params sent: `video_id=zLXOfWalsMk`, `limit=50`, `include_replies=true`,
+`sort=top`.
+
+```json
+{"video_id":"zLXOfWalsMk",
+ "title":"Are open earbuds here to stay? boAt Airdopes Loop Review",
+ "channel_id":"UC2ED_m4SuzuBJMiaJq2Vvfg",
+ "comments_count":20,"count":10,
+ "data":[{
+   "comment_id":"Ugy1taqzks8jSFGM4gN4AaABAg",
+   "author":"@ANBARASANNanbumechanical",
+   "author_channel_id":"UCaaAvRM1lxA-R1LU9hH-drg",
+   "text":"Im using it , Need to set 100 % volume , u can't experience great music, …",
+   "likes":"6",
+   "published":"10 months ago (edited)",
+   "is_pinned":false,
+   "is_owner_reply":false,
+   "reply_count":1,
+   "parent_id":null,
+   "depth":0}]}
+```
+
+Six things the adapter has to survive, all of them observed on this one call:
+
+- **`likes` is a string**, `"6"`. Same shape as `views` on a search result, and
+  every one of the ten came back as a plain integer in a string. The adapter
+  parses it and falls back to 0, which `Engagement` already means as unknown,
+  rather than guessing at an abbreviation it has never seen returned.
+- **`published` is relative here too**, and this is the only timestamp on a
+  comment. There is no absolute date anywhere in the payload. So the mention
+  unit that *can* become a `Mention` still needs its `PostedAt` resolved from
+  prose; see the `relativeTime` doc comment in `youtube.go` for why that is safe
+  enough and what is recorded in `Mention.Raw` to keep it honest.
+- **`published` carries a ` (edited)` suffix.** Two of the ten did. A regex
+  anchored without it drops those comments.
+- **`reply_count` is `null`, not `0`,** on every comment that has no replies,
+  and on every reply. `json.Unmarshal` puts a `null` into an `int` as 0 without
+  erroring, so `ReplyCount int` is correct and no pointer is needed.
+- **`count` is not `comments_count`.** The video reports 20 comments and the
+  call returned 10 with `limit=50`. `limit` is a ceiling, not a request, and
+  `comments_count` is YouTube's own total, which includes comments the API did
+  not hand back. Neither number is a count of what arrived; `len(data)` is.
+- **`include_replies=true` flattens the thread into the same array.** Replies
+  arrive as ordinary elements with `depth:1` and a `parent_id` pointing at the
+  root comment. Four of the ten were replies. The adapter keeps replies: a
+  reply is where the complaint usually lands ("is it still working??" under a
+  year-old recommendation) and dropping `depth>0` would throw away 40% of this
+  video's corpus.
+- **`is_owner_reply` means the video's uploader, not the brand.** The one
+  comment carrying it is `@UnboxedbyCroma`, whose `author_channel_id` equals
+  the payload's own `channel_id`. On a reviewer's video that is a reviewer
+  replying to a viewer, which is ordinary user content. It would only mean
+  brand voice on a video uploaded by the brand's own channel, and nothing in
+  `BrandProfile` records a brand's YouTube channel id to compare against. The
+  adapter therefore does not read the field, and self-mention filtering is not
+  a thing this source can do today. `mentions.Filter` drops on the collection
+  window and `p.NegativeKeywords` only; neither would catch it.
 
 ## 5. Amazon — and why it cannot be a mention source
 
@@ -343,10 +409,17 @@ required, and expect the enricher to see some furniture.
 
 ---
 
-## Open schemas after this task
+## Open schemas
 
-| What | Why it is still open | Plan |
+Task 1 closed with three open. All three are now closed, and no adapter in
+`internal/anakin/sources/` is written against a guessed field.
+
+| What | How it was closed | Where it is written down |
 |---|---|---|
-| `yt_comments` response | 3 credits, budget hit 9 of 10 | hand-written fixture; verified on the first live call of Task 7 |
-| App Store review RSS | not a Wire action, no credits spent yet | Task 7, it is a URL Scraper call |
-| Play Store listing | Task 2's probe, 3 credits, separate budget | Task 2 |
+| `yt_comments` response | read live in Task 4, 3 credits | §4 above |
+| App Store review RSS | read live in Task 4 via URL Scraper, 1 credit | research/anakin.md, "Read `html`, not `markdown`" |
+| Play Store listing | Task 2's probe, 3 credits | research/playstore-probe.md |
+
+The App Store call also settled what a URL Scraper response looks like, which
+had been carried as UNVERIFIED in `sources/scrape`: the fields arrive at the
+top level with no envelope, and only `html` carries a JSON document verbatim.

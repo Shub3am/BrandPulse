@@ -42,7 +42,7 @@ cover most of the gap. This is what BrandPulse actually ships:
 | `amazon` | Wire `am_search_products` + `am_product_reviews` | **Dead as a mention source** — see below |
 | `news` | Search API, `prompt` scoped to brand + news terms | **Solid** |
 | `web` | Search API for blogs/forums, then URL Scraper for full text | **Solid** |
-| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good, but per-app. Validate every app id before you trust it** — the feed is alive and returns full fields, yet it comes back with **no `entry` key at all** for many real apps. Measured below. |
+| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper, parsing **`html`** | **Good, but the feed comes back with no `entry` key at all for many real ids, and which ids depends on the exact URL form as much as on the app.** Measured below, and corrected below that. |
 | `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing, parsing **`html`**, not `markdown` | **Low-yield, confirmed live** — text, star rating, date, review id and helpful count all extract cleanly, but a listing renders only **3 reviews** and no method moved that. [playstore-probe.md](playstore-probe.md) |
 | `x` | Search API scoped `site:x.com`, snippets only | **Degraded** — no engagement metrics, no follower counts. Ships as a low-yield source or is dropped. |
 | `instagram` | none | **Dropped** |
@@ -76,20 +76,53 @@ envelope with `author`, `updated`, `title`, `link`, `id`:
 | Nykaa, control | 1479127399 | **0** |
 
 There is no pattern by popularity: NoiseFit has 122 244 ratings and returns
-nothing, NoiseFit Track has 948 and returns 50. Nykaa returns nothing. It is
-not flakiness either, three runs gave identical counts. `sortBy=mostHelpful`
-made no difference, and `us` on a busy app was also 0 where `in` was 50.
+nothing, NoiseFit Track has 948 and returns 50. Nykaa returns nothing.
+`sortBy=mostHelpful` made no difference, and `us` on a busy app was also 0
+where `in` was 50.
 
-**The failure mode is what matters: the `entry` key is absent, not empty.** In
-Go `len(feed.Entry) == 0` after a successful decode looks exactly like an app
-with no reviews. So:
+#### Correction, same day, Task 4: emptiness follows the URL form, not the app
 
-- **Validate an app id by fetching it once, before it goes in a
-  `BrandProfile.SourceHandles`.** An id that returns nothing today returns
-  nothing on stage.
+The table above is a true record of what those nine URLs returned. The
+conclusion drawn under it was wrong, and this correction is the finding.
+
+Re-measuring with a 4-form × 9-app matrix and 6 repeated runs: **boAt Shopping
+went 36 → 0 and boAt Hearables went 0 → 50**, on the same ids, the same
+storefront and the same sort. Within one session a given URL is deterministic,
+which is what made the first measurement look stable; across forms and across
+days it flips.
+
+So strike the sentence "an id that returns nothing today returns nothing on
+stage". It does not hold. What replaces it:
+
+- **Validating an app id once proves nothing about stage.** The check that
+  matters is the one the adapter already makes on every run.
+- `demo/brand.json` uses **1592550875** (boAt Hearables), which returned 50 on
+  the form the adapter builds, and which matches the `playstore` package
+  already listed. It does not use 6475390290.
 - The `appstore` adapter returns an error on a zero-entry feed, the same rule
   as `playstore`. A source that quietly contributes nothing is worse than one
-  that fails loudly.
+  that fails loudly. Given this correction that rule is load-bearing, not
+  belt-and-braces.
+
+#### Read `html`, not `markdown`, when the URL serves JSON
+
+Measured 2026-09-20, 1 credit, scraping the feed URL through
+`POST /v1/url-scraper/scrape`:
+
+| Format | 40 KB feed | `json.Unmarshal` |
+|---|---|---|
+| `html` | the document verbatim | **parses, 50 entries** |
+| `markdown` | `[` escaped to `\[` | fails at char 112 |
+| `cleanedHtml` | every `"` turned into `&#34;` | fails at char 1 |
+
+The scraper treats a JSON body as a document to render, and both derived
+formats are lossy in ways that are invisible until `Unmarshal` refuses. This is
+the same trap as the Play Store rating, one layer down.
+
+The same call also settled the envelope question: the response fields
+(`id`, `status`, `url`, `jobType`, `country`, `html`, `cleanedHtml`,
+`markdown`, `cached`, `createdAt`, `completedAt`, `durationMs`) arrive at the
+**top level, with no envelope**.
 
 Where it works it is the best-shaped source we have: `im:rating`, `im:version`,
 `updated` (RFC 3339), `author.name`, a numeric `id`, `title`, `content`,
@@ -322,6 +355,9 @@ enough to classify, and Task 1's own spend is now a real number.
 |---|---|---|
 | **Task 1 schema reads, spent** | 5 billed + 3 free 400s | **9** |
 | **Task 2 Play Store probe, spent** | 3 on the listing + 1 mistake | **4** |
+| **Task 3 App Store id survey, spent** | 4 | **4** |
+| **Task 4 `yt_comments` schema read, spent** | 1 | **3** |
+| **Task 4 scrape-format check on a JSON url, spent** | 1 | **1** |
 | Onboard: map ×3 + crawl 20pp ×1 | 4 | ~23 |
 | Reddit `rt_search`, 3 queries × 3 brands | 9 | 18 |
 | YouTube `yt_search` ×3 + `yt_comments` ×6 | 9 | 21 |
@@ -331,10 +367,10 @@ enough to classify, and Task 1's own spend is now a real number.
 | Play Store listings ×3, `markdown`+`html` | 3 | 3 |
 | ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
 | **Task 7 recording subtotal** | | **~103** |
-| Spent already (Tasks 1 and 2) | | 13 |
+| Spent already (Tasks 1 to 4) | | 21 |
 | Retry/headroom | | ~60 |
 | Reserved for the stage live call | | ~10 |
-| **Ceiling** | | **~186 of 300** |
+| **Ceiling** | | **~194 of 300** |
 
 Roughly 114 credits spare, up from 95, because Amazon and the blanket 20-page
 scrape both came out. The client's `MaxCredits` ceiling enforces it
