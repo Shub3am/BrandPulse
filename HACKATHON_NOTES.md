@@ -33,6 +33,7 @@ Newest entry at the bottom of its section.
 | B5, B6 | **you** | No hosting target for `web/` and `bff/`, and no production Postgres. Nasiko hosts the nine agents; it does not host a Next.js app, a Fastify process or a database. Phase 4's gate says "`web/` renders a real run" against infrastructure nobody has named. | open |
 | ~~B1~~ | ~~B7~~ | ~~Fast-forward `main` to `track/b1-core`~~ | **closed 2026-09-20**, merged as `73ef873`, see below |
 | ~~B2 (Tasks 4-8)~~ | ~~B1~~ | ~~Nothing in `internal/` exists except `models/`, so an adapter cannot compile~~ | **closed 2026-09-20**, `73ef873` merged into `track/b2-collect` |
+| B2, B3, B4 | B1 | **`ids.New` and `hashing.ContentHash` still `panic("not implemented")`.** They are on the path every mention takes: `mentions.Stamp` calls both on every draft, so any adapter that actually returns a mention panics rather than failing. 23 stubs across `internal/` are in this state. Every adapter test in `internal/anakin/sources/` currently drives `Fetch` with a 2020 collection window so the filter empties the batch and `Stamp` loops zero times. That is a workaround, not coverage: the moment B1 implements these two, those windows move to real dates and the assertions get stronger. | open, blocks Task 7 recording |
 | B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
 | B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
 
@@ -408,6 +409,68 @@ reviews this week".
 The `amazon` ASIN is in `source_handles` because the brief asked for it and it
 is a useful reference, but `amazon` is deliberately **not** in `sources`. See
 the Task 1 entry for why.
+
+### 2026-09-20 — B2 Task 4 — six adapters ship, and I have to correct my own Task 3 entry
+
+All six sources are written, tested and on `track/b2-collect`: `reddit`,
+`youtube`, `news`, `web`, `appstore`, `playstore`. `go build ./...`,
+`go vet ./...` and `BP_FIXTURE_MODE=replay go test ./internal/anakin/sources/...`
+are green. No source is faked and none is registered that was not probed.
+
+**Correction to the Task 3 entry above. Do not act on it as written.** It says
+"B1 and B5: validate every App Store id by fetching it once before it goes into
+a profile", on the reasoning that an id that returns nothing today returns
+nothing on stage. That reasoning is wrong. Re-measuring across four URL forms
+with six repeated runs, **boAt Shopping went 36 to 0 and boAt Hearables went 0
+to 50**, same ids, same storefront, same sort. Emptiness follows the URL form
+and the day, not the app. A one-off validation proves nothing about stage. What
+protects us instead is that the `appstore` adapter **errors on a zero-entry
+feed** rather than returning an empty slice, so a bad fetch is loud. The
+measurement matrix is in [docs/research/anakin.md](docs/research/anakin.md) §1
+under "Correction, same day, Task 4". `demo/brand.json` now carries
+`appstore: "1592550875"`, not `6475390290`.
+
+**For B1, four things about `internal/anakin` that my adapters now depend on.**
+None of them need a contract change; they need confirming or fixing in your
+implementation:
+
+1. **`Wire` must return the payload, not the envelope.** Every adapter
+   unmarshals the `json.RawMessage` straight into its own response struct, so
+   `Wire` has to have stripped both layers of the double nesting first
+   (`.data.data`, per wire-schemas.md §1). Same for `Scrape`: fields arrive at
+   the response's top level with no envelope at all, verified live.
+2. **The registry shipped as `Adapters`, not `Registry`.** My Task 1 entry said
+   `var Registry = map[models.Source]Adapter{...}`. It is
+   `var Adapters = map[models.Source]FetchFunc{...}` plus
+   `func For(source) (FetchFunc, bool)` in `internal/anakin/sources/registry.go`.
+   `For` exists because a caller ranging over `BrandProfile.Sources` has to tell
+   "not collected" from "collected nothing", and a nil out of the map does not.
+   The per-source directory layout is unchanged and the §4 signature is exact.
+3. **`WireOpt.Params` is load-bearing.** `yt_comments` needs
+   `Params: {"video_id": ..., "include_replies": true}` and there is no field
+   for either. Whatever `Params` does, it has to reach the action's own
+   parameter object, not the top level.
+4. **`ErrBudgetExceeded` has to survive wrapping.** Every adapter checks
+   `errors.Is(err, anakin.ErrBudgetExceeded)` and treats it as stop-the-run
+   rather than skip-this-keyword, returning the partial batch it already paid
+   for. If the real client returns a fresh error instead of wrapping the
+   sentinel, six adapters will keep spending after the ceiling.
+
+**`go.mod` gained `golang.org/x/net v0.47.0`**, for `html.Parse` in the
+`playstore` adapter. It is the only new dependency B2 adds. Google's listing is
+obfuscated build output with rotating class names, and a regex over it would
+fail silently on the next rotation; the parser fails loudly instead.
+
+**`yt_comments` is no longer an open schema.** Read live for 3 credits, written
+up in [wire-schemas.md](docs/research/wire-schemas.md) §4. Every open schema
+from Task 1 is now closed. Watch out for three shapes if you touch YouTube:
+`likes` is a string, `published` is relative prose and can carry an
+` (edited)` suffix, and `reply_count` is `null` rather than `0`.
+
+**Credits: 21 spent of 300.** Task 1 nine, Task 2 four, Task 3 four, Task 4
+four. The Task 7 recording estimate is ~103 and the ceiling including headroom
+is ~194 of 300.
+
 ### 2026-09-20 — B1 — the import surface is up: `brandpulse/internal/...` compiles
 
 `go build ./... && go vet ./...` are both green. Every package named in
