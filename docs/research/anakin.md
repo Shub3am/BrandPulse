@@ -309,17 +309,96 @@ makes the Play Store probe cheap enough to try.
 
 Both async, 202 + `jobId`, then poll.
 
+Everything below the request lines was read live on 2026-09-20 in Task 6, on
+`boat-lifestyle.com`, before writing bp-onboarder. The previous version of this
+section was copied from the documentation and got three things wrong. The URL
+Scraper probe in Task 3 had already shown doc-derived shapes are not reliable
+here, so this one is measured.
+
 `POST /v1/crawl` — `url*`, `maxPages` (default 10, max 100), `depth` (default 1,
 max 5), `includePatterns`, `excludePatterns`, `useBrowser`. **1 credit per page
-crawled.** Poll returns `results[]` with `url`, `html`, `markdown`, `status`.
+crawled.**
 
 `POST /v1/map` — `url*`, `includeSubdomains`, `includeExternalLinks`, `limit`
 (default 100, max 5000), `depth` (default 2, max 5), `search`. **1 credit per
-job.** Poll returns `links[]`, `totalLinks`, `externalLinks[]`.
+job.**
 
-Map is cheap and crawl is not. bp-onboarder maps first, filters the link list
-to product/about pages, then crawls only those — 1 + N credits instead of
-blanket-crawling a site. Cap `maxPages` at 20.
+### What Map actually returns
+
+Job `345b9ad4`, `limit: 100`. Top level is
+`completedAt, createdAt, durationMs, id, links, status, totalLinks, url`.
+
+- **`links` is `[]string`, a flat list of URLs.** It is not a list of objects.
+  A `[]struct{ URL string }` decodes to a slice of empty structs with no error,
+  which is the silent-empty failure this repo keeps hitting.
+- **`externalLinks` is absent from the response**, not empty, when
+  `includeExternalLinks` is not passed. The old text listed it as always
+  present. Decode it as a pointer or check for the key.
+- `totalLinks` was 100, `len(links)` was 100, and the `limit` passed was 100.
+  On this call `totalLinks` is not distinguishable from "how many came back",
+  so do not read it as "how many the site has".
+
+Path distribution of those 100 links: 48 `/products`, 35 `/collections`,
+13 `/pages`, 2 `/account`, 1 `/cart`, 1 root. **The list is products-first**, so
+truncating it at 20 gives 20 product pages and no about page. The page filter
+needs a per-kind quota, not a head-20.
+
+### What Crawl actually returns
+
+Job `c6bb9d31`, seeded at `/pages/warranty`, `maxPages: 2`. Top level is
+`completedAt, completedPages, createdAt, durationMs, id, results, status,
+totalPages, url` — `completedPages` and `totalPages` are both undocumented.
+Each `results[]` element is `durationMs, html, markdown, status, url`.
+**There is no `cleanedHtml`.** Neither response is wrapped in an envelope.
+
+Crawl `markdown` escapes list numbers: `"1\\. Copyright Notice"`. Same trap as
+the App Store `markdown` finding in §1.
+
+### Crawl takes one seed URL and follows links from it
+
+This is the finding that changed bp-onboarder's design. Crawl is not "fetch
+these pages". Seeded at `/pages/warranty` it returned warranty **and**
+`/collections/daily-deals`, a link off that page.
+
+Three request probes, 2026-09-20:
+
+| Body | Result |
+|---|---|
+| `includePatterns: 123` and `[123]` | 400 `invalid_request`, "Invalid JSON body", free |
+| `maxPages: 0` | **202 accepted, crawled 10 pages, 10 credits** |
+| `urls: ["…/pages/warranty"]` alongside `url` | 202, crawled the root only, the `urls` key was ignored |
+
+Two consequences, and both cost money:
+
+- **`maxPages: 0` is not a validation error, it is the default of 10.** A Go
+  zero value reaching this field silently spends 10 credits. bp-onboarder
+  applies its own default before the call rather than letting an unset field
+  through.
+- **Unknown request fields are accepted and ignored.** A misspelled parameter
+  does not 400, it silently does nothing and you are billed for the call it
+  turned into. There is no way to typo-check a request except by reading the
+  response.
+
+`includePatterns` only ever produced the generic "Invalid JSON body" on a type
+error, so the **pattern syntax is UNVERIFIED** — glob, regex or prefix is
+unknown. Nothing here should depend on it.
+
+### So the onboarder maps, then scrapes
+
+Crawling from the site root is wasteful and unsteerable: the 10-page probe
+spent 3 of its 10 credits on `/account`, `/account/login` and `/cart`. Steering
+it away needs `excludePatterns`, whose syntax is unverified.
+
+Once Map has the link list, Crawl has nothing left to offer. `Scrape` costs the
+same 1 credit per URL, fetches exactly the URL given, is synchronous instead of
+submit-and-poll, and its response shape is already verified in §4. bp-onboarder
+therefore maps once, filters the links, and scrapes each kept page: 1 + N
+credits, N pages chosen by us.
+
+This departs from the B2 brief's "then `Client.Crawl` only those", which assumed
+Crawl accepts a list. It does not, and the `urls` probe above shows a list is
+silently ignored rather than rejected. The brief's intent, do not blanket-crawl,
+is what the filter preserves.
 
 ## 6. Credits
 
@@ -358,7 +437,9 @@ enough to classify, and Task 1's own spend is now a real number.
 | **Task 3 App Store id survey, spent** | 4 | **4** |
 | **Task 4 `yt_comments` schema read, spent** | 1 | **3** |
 | **Task 4 scrape-format check on a JSON url, spent** | 1 | **1** |
-| Onboard: map ×3 + crawl 20pp ×1 | 4 | ~23 |
+| **Task 6 Map and Crawl shape reads, spent** | 2 | **3** |
+| **Task 6 crawl parameter probes, spent in error** | 2 | **11** |
+| Onboard: map ×3 + scrape 20 pages ×1 | 23 | ~23 |
 | Reddit `rt_search`, 3 queries × 3 brands | 9 | 18 |
 | YouTube `yt_search` ×3 + `yt_comments` ×6 | 9 | 21 |
 | News/web Search API, 10 queries | 10 | 30 |
@@ -367,15 +448,28 @@ enough to classify, and Task 1's own spend is now a real number.
 | Play Store listings ×3, `markdown`+`html` | 3 | 3 |
 | ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
 | **Task 7 recording subtotal** | | **~103** |
-| Spent already (Tasks 1 to 4) | | 21 |
+| Spent already (Tasks 1 to 6) | | 35 |
 | Retry/headroom | | ~60 |
 | Reserved for the stage live call | | ~10 |
-| **Ceiling** | | **~194 of 300** |
+| **Ceiling** | | **~208 of 300** |
 
-Roughly 114 credits spare, up from 95, because Amazon and the blanket 20-page
-scrape both came out. The client's `MaxCredits` ceiling enforces it
+Roughly 92 credits spare. The client's `MaxCredits` ceiling enforces it
 (CONTRACTS §3, `anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate
 before spending anything.
+
+**The 11-credit line is a mistake of mine, not a planned read.** I sent
+`maxPages: 0` to `/v1/crawl` expecting a 400 that would tell me the valid
+range, because failed calls are free. It was accepted as the default of 10 and
+crawled 10 pages. The rule that follows: an out-of-range probe against a
+parameter is only free if the parameter rejects out-of-range values, and on
+this API most do not. Probe with a wrong **type**, which does 400, never with a
+wrong **value**.
+
+**There is no usage or balance endpoint.** `/v1/usage`, `/v1/credits`,
+`/v1/account`, `/v1/me` and `/v1/billing` all 404. This table and the `budget`
+rows in Postgres are the only count that exists, so an overspend is invisible
+until the key stops working. That is the argument for `MaxCredits` being a hard
+client-side stop rather than a warning.
 
 Corpus feasibility without Amazon: Reddit 9 searches × ~15 posts = ~135,
 YouTube 6 × `yt_comments` at `limit: 50` = up to 300, Search 10 × 20 = up to
