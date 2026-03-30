@@ -845,6 +845,25 @@ fixture corpus and B3's labelling set, is waiting on that one constructor.
 #### For B5, on the onboarder's cost
 
 bp-onboarder is capped at **30 Anakin credits and one LLM call**, both tested.
-Onboarding one brand is 1 map plus up to 24 scrapes. The default page count is
+Onboarding one brand is 1 map plus up to 29 scrapes. The default page count is
 25 per CONTRACTS §2 and the agent applies it; pass a smaller `max_pages` if you
 are onboarding on stage, because 26 credits per brand is real money against 300.
+
+#### Two smaller asks of B1, neither of them blocking
+
+Both came out of a cleanup pass over bp-onboarder and `demo/record`, and both
+are in `internal/`, which I do not write to from this worktree.
+
+1. **`anakin.ModeFromEnv()`.** bp-collector, bp-onboarder and `demo/record` each
+   read `BP_FIXTURE_MODE` and each re-apply the "empty means replay, never live"
+   rule by hand. That rule is the zero-credit CI guarantee and it is currently
+   three copies. One exported helper in `internal/anakin` makes it one.
+2. **A batch method on `anakin.Client`.** `docs/research/anakin.md` §4 documents
+   `POST /v1/url-scraper/batch`, async, up to 10 URLs per job. The onboarder
+   scrapes up to 29 pages one blocking call at a time, which is 90 to 145
+   seconds of wall clock in live mode on a path DronaHQ calls with a human
+   waiting on a form. Batch turns 29 round trips into 3. The interface is frozen
+   B1 territory, so this is a request, not a change. It costs the same credits.
+
+Neither matters in `replay` mode, which is CI and the demo, so neither is on the
+critical path for Sunday.

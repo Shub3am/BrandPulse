@@ -35,10 +35,8 @@ const (
 	maxScrapedPages  = maxAnakinCredits - mapCredits
 
 	// defaultMaxPages is CONTRACTS §2: MaxPages 0 means 25 and this agent
-	// applies it. It is applied here and not left to Anakin, because
-	// /v1/crawl treats a zero maxPages as its own default of 10 rather than
-	// as an error (docs/research/anakin.md §5) and a zero-valued Go int
-	// reaching the wire spends credits on a silently different plan.
+	// applies it. Anakin cannot apply it for us, because the page count is
+	// spent here as one Scrape call per page and never travels as a field.
 	defaultMaxPages = 25
 
 	// maxPromptChars caps the site text handed to the model. Twelve pages of
@@ -51,9 +49,9 @@ const (
 // OnboarderHandler builds a BrandProfile from a brand's own website.
 //
 // Its three collaborators are fields for the same reason bp-collector's are:
-// llm.ChatJSON and redact.PII both still panic in B1's tree, so a test that
-// called them through the package would panic before reaching anything this
-// agent owns. The Anakin client is already an interface.
+// llm.ChatJSON goes out over OPENAI_BASE_URL, so under the repo's zero-credit,
+// zero-key CI rule no test can reach it through the package. These are
+// permanent test seams, not a workaround for B1's stubs still panicking.
 type OnboarderHandler struct {
 	// NewClient builds the Anakin client for one onboarding, bound to this
 	// agent's credit ceiling.
@@ -126,10 +124,7 @@ func pageBudget(requested int) int {
 	if requested <= 0 {
 		requested = defaultMaxPages
 	}
-	if requested > maxScrapedPages {
-		return maxScrapedPages
-	}
-	return requested
+	return min(requested, maxScrapedPages)
 }
 
 // readSite maps the site, picks the pages worth reading, and scrapes them.
@@ -247,35 +242,35 @@ func selectPages(site string, links []string, budget int) []string {
 		return nil
 	}
 
+	// dedupe already guarantees one link per canonical form, so the homepage is
+	// the only duplicate left to drop and it drops here rather than in the loop.
+	home := canonical(site)
 	buckets := map[pageKind][]string{}
 	for _, link := range dedupe(links) {
+		if canonical(link) == home {
+			continue
+		}
 		if kind := classify(link); kind != kindSkip {
 			buckets[kind] = append(buckets[kind], link)
 		}
 	}
 
 	picked := []string{site}
-	seen := map[string]bool{canonical(site): true}
 
 	// About first: on a small site it is the only bucket with anything in it.
 	order := []pageKind{kindAbout, kindProduct, kindCollection}
-	for taken := true; taken && len(picked) < budget; {
-		taken = false
+	for took := true; took && len(picked) < budget; {
+		took = false
 		for _, kind := range order {
 			if len(picked) >= budget {
 				break
 			}
-			for len(buckets[kind]) > 0 {
-				next := buckets[kind][0]
-				buckets[kind] = buckets[kind][1:]
-				if seen[canonical(next)] {
-					continue
-				}
-				seen[canonical(next)] = true
-				picked = append(picked, next)
-				taken = true
-				break
+			if len(buckets[kind]) == 0 {
+				continue
 			}
+			picked = append(picked, buckets[kind][0])
+			buckets[kind] = buckets[kind][1:]
+			took = true
 		}
 	}
 	return picked

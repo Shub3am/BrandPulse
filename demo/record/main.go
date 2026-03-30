@@ -77,12 +77,16 @@ func run(confirm bool, brandPath string) error {
 		return err
 	}
 
-	plan := planFor(brand, competitors)
+	profiles := append([]models.BrandProfile{brand}, competitors...)
+	plan := planFor(profiles)
 	estimate := totalCredits(plan)
 	printEstimate(plan, estimate)
 
 	if estimate > abortAbove {
 		return fmt.Errorf("the estimate of %d credits is over the %d ceiling; cut scope rather than raising it", estimate, abortAbove)
+	}
+	if remaining := freeTierCredits - spentBeforeRecording; estimate > remaining {
+		return fmt.Errorf("the estimate of %d credits is %d over the %d left on the account", estimate, estimate-remaining, remaining)
 	}
 	if !confirm {
 		fmt.Printf("\nDry run. Nothing was spent and no Anakin client was built.\nRe-run with -confirm and BP_FIXTURE_MODE=record to record for real.\n")
@@ -93,7 +97,7 @@ func run(confirm bool, brandPath string) error {
 	if mode != anakin.ModeRecord {
 		return fmt.Errorf("-confirm needs BP_FIXTURE_MODE=record, got %q; refusing to spend credits without writing fixtures", mode)
 	}
-	return record(context.Background(), append([]models.BrandProfile{brand}, competitors...), estimate)
+	return record(context.Background(), profiles, estimate)
 }
 
 // loadBrands reads demo/brand.json and derives one profile per competitor.
@@ -142,33 +146,28 @@ func keywordSearchable(all []models.Source) []models.Source {
 }
 
 // planFor builds the recording plan from the brands themselves, so the printed
-// estimate moves when demo/brand.json does.
-func planFor(brand models.BrandProfile, competitors []models.BrandProfile) []step {
+// estimate moves when demo/brand.json does. It takes the brand and its
+// competitors as one list, the same list record() spends against.
+func planFor(profiles []models.BrandProfile) []step {
 	// Per-source cost and call shape, from docs/research/anakin.md §6.
 	// keywordsUsed caps how many of a profile's keywords become queries: the
 	// demo brand carries 9 and searching all of them triples the bill for
 	// mentions that overlap heavily.
 	const keywordsUsed = 3
 
-	queries := func(p models.BrandProfile) int {
-		if len(p.Keywords) < keywordsUsed {
-			return len(p.Keywords)
-		}
-		return keywordsUsed
-	}
-
 	var plan []step
-	for _, profile := range append([]models.BrandProfile{brand}, competitors...) {
+	for _, profile := range profiles {
+		queries := min(len(profile.Keywords), keywordsUsed)
 		for _, source := range profile.Sources {
 			switch source {
 			case models.SourceReddit:
-				plan = append(plan, step{source, profile.Name + " rt_search", queries(profile), 2})
+				plan = append(plan, step{source, profile.Name + " rt_search", queries, 2})
 			case models.SourceYoutube:
 				// One search for the videos, then comments on the top two.
 				plan = append(plan, step{source, profile.Name + " yt_search", 1, 1})
 				plan = append(plan, step{source, profile.Name + " yt_comments", 2, 3})
 			case models.SourceNews, models.SourceWeb:
-				plan = append(plan, step{source, profile.Name + " Search API", queries(profile), 3})
+				plan = append(plan, step{source, profile.Name + " Search API", queries, 3})
 			case models.SourceAppstore:
 				plan = append(plan, step{source, profile.Name + " review feed", 1, 1})
 			case models.SourcePlaystore:
@@ -201,9 +200,6 @@ func printEstimate(plan []step, estimate int) {
 	fmt.Printf("\nAlready spent (docs/research/anakin.md §6): %d of %d\n", spentBeforeRecording, freeTierCredits)
 	fmt.Printf("Remaining before this run:                  %d\n", remaining)
 	fmt.Printf("This run would leave:                       %d\n", remaining-estimate)
-	if estimate > remaining {
-		fmt.Printf("\nTHE PLAN DOES NOT FIT. It is %d credits over what is left.\n", estimate-remaining)
-	}
 }
 
 // record runs every adapter once per brand and lets the client write fixtures.
@@ -237,9 +233,11 @@ func record(ctx context.Context, profiles []models.BrandProfile, estimate int) e
 			mentions, err := fetch(ctx, client, profile, start, end)
 			// A dead source does not stop the session. It is recorded as
 			// absent, and the repo rule is that a source which failed its probe
-			// does not appear in a fixture, a count or a sentence.
+			// does not appear in a fixture, a count or a sentence, so the count
+			// is only logged when the fetch actually returned one.
 			if err != nil {
 				log.Printf("%s/%s: %v", profile.BrandID, source, err)
+				continue
 			}
 			log.Printf("%s/%s: %d mentions", profile.BrandID, source, len(mentions))
 			recorded += len(mentions)

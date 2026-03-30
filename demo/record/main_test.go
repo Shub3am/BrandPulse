@@ -24,6 +24,12 @@ func loadForTest(t *testing.T) (models.BrandProfile, []models.BrandProfile) {
 	return brand, competitors
 }
 
+// planForTest mirrors what run() passes planFor: the brand first, then its
+// competitors, as one list.
+func planForTest(brand models.BrandProfile, competitors []models.BrandProfile) []step {
+	return planFor(append([]models.BrandProfile{brand}, competitors...))
+}
+
 // anakin.NewHTTPClient panics as a B1 stub, so a dry run that built a client
 // would panic rather than print. When B1 lands it would spend instead, which
 // is the failure this test exists for.
@@ -54,7 +60,7 @@ func TestConfirmWithoutRecordModeIsRefused(t *testing.T) {
 // The brief's rule: over this, cut scope rather than raise the ceiling.
 func TestTheRealPlanFitsTheBudget(t *testing.T) {
 	brand, competitors := loadForTest(t)
-	estimate := totalCredits(planFor(brand, competitors))
+	estimate := totalCredits(planForTest(brand, competitors))
 
 	if estimate > abortAbove {
 		t.Errorf("the plan estimates %d credits, over the %d abort threshold", estimate, abortAbove)
@@ -75,7 +81,7 @@ func TestEveryCompetitorIsRecorded(t *testing.T) {
 		t.Fatalf("got %d competitor profiles, want %d", len(competitors), len(brand.Competitors))
 	}
 
-	plan := planFor(brand, competitors)
+	plan := planForTest(brand, competitors)
 	for _, rival := range brand.Competitors {
 		found := false
 		for _, s := range plan {
