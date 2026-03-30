@@ -36,6 +36,7 @@ Newest entry at the bottom of its section.
 | B2, B3, B4 | B1 | **`ids.New` and `hashing.ContentHash` still `panic("not implemented")`.** They are on the path every mention takes: `mentions.Stamp` calls both on every draft, so any adapter that actually returns a mention panics rather than failing. 23 stubs across `internal/` are in this state. Every adapter test in `internal/anakin/sources/` currently drives `Fetch` with a 2020 collection window so the filter empties the batch and `Stamp` loops zero times. That is a workaround, not coverage: the moment B1 implements these two, those windows move to real dates and the assertions get stronger. | open, blocks Task 7 recording |
 | B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
 | B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
+| B2, B3 | B1 | **`anakin.NewHTTPClient` panics, so the Task 7 recording cannot run and the Task 8 labelling set cannot be sampled.** `demo/record` is written, tested and its dry run prints a 63-credit estimate, but `-confirm` panics at `internal/anakin/anakin.go:194`. B3 is waiting on `fixtures/labelled/mentions.jsonl` and I will not fabricate it: the repo rule is that a source which did not return data does not appear in a fixture, a count or a sentence. **The moment `NewHTTPClient` and `record` mode land I run the session and B3 has the corpus the same hour.** | open, blocks Tasks 7 and 8 |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -773,3 +774,77 @@ brackets and is replaced, never quietly promoted.
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
 | Time from mention to alert on screen | — | `demo/run_demo.sh` timing output | B4 |
 | Nasiko PR | — | link | B5 |
+
+### 2026-09-20 — B2 Tasks 6 and 7 — Crawl is not what the docs say, and it cost me 11 credits to find out
+
+**bp-onboarder and demo/record ship. The recording session does not, and that
+is on B1's stub, not on scope.**
+
+#### Crawl takes one seed URL and follows links. It does not take a list.
+
+`docs/research/anakin.md` §5 said "map first, filter the link list, then crawl
+only those". That plan cannot be expressed: `POST /v1/crawl` accepts one `url`
+and crawls outward from it. I seeded `/pages/warranty` and got warranty plus
+`/collections/daily-deals`, a link off that page. Passing a `urls` array
+alongside `url` is **silently ignored**, not rejected: the job came back having
+crawled the root only, and I paid for it.
+
+So bp-onboarder maps once, filters the links itself, and **scrapes** the ones it
+keeps. `Scrape` costs the same 1 credit per URL, fetches exactly the URL given,
+is synchronous rather than submit-and-poll, and its response shape was already
+verified in Task 3. Once Map has done the discovery, Crawl has nothing left to
+offer. §5 now carries the live shapes.
+
+#### Two API behaviours that will cost another track money
+
+- **`maxPages: 0` is not a validation error. It is the default of 10.** I sent
+  it expecting a free 400 that would tell me the valid range. It was accepted
+  and crawled 10 pages. **A Go zero value reaching this field spends 10
+  credits.** That is why bp-onboarder resolves `MaxPages == 0` to 25 before the
+  call rather than letting an unset field through to the wire.
+- **Unknown request fields are accepted and ignored.** A misspelled parameter
+  does not 400. It silently does nothing and you are billed for whatever call it
+  turned into. There is no way to typo-check a request except by reading the
+  response and noticing it did not do what you asked.
+
+The rule I should have been following, and now am: probe with a wrong **type**,
+which does 400 and is free. Never with a wrong **value**.
+
+#### There is no usage endpoint
+
+`/v1/usage`, `/v1/credits`, `/v1/account`, `/v1/me` and `/v1/billing` all 404.
+The table in research §6 and the `budget` rows in Postgres are the only count
+that exists, so an overspend is invisible until the key stops working. **That is
+the argument for `MaxCredits` being a hard client-side stop, not a warning.**
+Whoever implements `NewHTTPClient`: there is no server-side safety net behind
+you.
+
+Credits stand at **35 of 300**, of which 11 were the mistake above. The
+recording plan estimates 63, leaving 202.
+
+#### Map's shape, for anyone decoding it
+
+`links` is a flat **`[]string`**, not a list of objects. A `[]struct{URL string}`
+decodes to a slice of empty structs **with no error**, which is the
+silent-empty failure this repo keeps hitting. `externalLinks` is **absent** from
+the response unless `includeExternalLinks` is passed, so decode it as a pointer
+or check for the key.
+
+The link list is **products-first**: 48 `/products`, 35 `/collections`, 13
+`/pages` on boat-lifestyle.com. Truncating it at 25 gives 25 product pages and
+no about page, so bp-onboarder takes turns between the three kinds instead of
+taking the head of the list.
+
+#### One ask of B1, and it is the only thing standing between B3 and a corpus
+
+`NewHTTPClient` plus `record` mode. `demo/record` is written and green, its dry
+run prints the estimate and spends nothing, and `-confirm` panics at
+`internal/anakin/anakin.go:194`. Everything downstream of the recording, the
+fixture corpus and B3's labelling set, is waiting on that one constructor.
+
+#### For B5, on the onboarder's cost
+
+bp-onboarder is capped at **30 Anakin credits and one LLM call**, both tested.
+Onboarding one brand is 1 map plus up to 24 scrapes. The default page count is
+25 per CONTRACTS §2 and the agent applies it; pass a smaller `max_pages` if you
+are onboarding on stage, because 26 credits per brand is real money against 300.
