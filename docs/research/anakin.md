@@ -39,19 +39,95 @@ cover most of the gap. This is what BrandPulse actually ships:
 |---|---|---|
 | `reddit` | Wire `rt_search` + `rt_subreddit_posts` + `rt_post_details` | **Solid** |
 | `youtube` | Wire `yt_search` + `yt_comments` | **Solid** |
-| `amazon` | Wire `am_search_products` + `am_product_reviews` | **Solid** |
+| `amazon` | Wire `am_search_products` + `am_product_reviews` | **Dead as a mention source** — see below |
 | `news` | Search API, `prompt` scoped to brand + news terms | **Solid** |
 | `web` | Search API for blogs/forums, then URL Scraper for full text | **Solid** |
-| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper | **Good** — public, documented, no ToS problem. Validate the feed returns data for the demo app before relying on it. |
-| `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing | **Probe** — reviews are JS-rendered. B2 spends ≤ 3 credits testing this early. If it fails, the source is dropped, not faked. |
+| `appstore` | Apple's **public review RSS**, `https://itunes.apple.com/in/rss/customerreviews/id=<app_id>/sortBy=mostRecent/json`, fetched via URL Scraper, parsing **`html`** | **Good, but the feed comes back with no `entry` key at all for many real ids, and which ids depends on the exact URL form as much as on the app.** Measured below, and corrected below that. |
+| `playstore` | URL Scraper with `useBrowser: true` on the app's Play listing, parsing **`html`**, not `markdown` | **Low-yield, confirmed live** — text, star rating, date, review id and helpful count all extract cleanly, but a listing renders only **3 reviews** and no method moved that. [playstore-probe.md](playstore-probe.md) |
 | `x` | Search API scoped `site:x.com`, snippets only | **Degraded** — no engagement metrics, no follower counts. Ships as a low-yield source or is dropped. |
 | `instagram` | none | **Dropped** |
 | `flipkart` | Wire product data only, no reviews | **Dropped as a mention source** |
 
-Seven solid-to-good sources. The demo's "7 sources" claim survives; the
-Play Store review-bomb story depends on the probe. See
-[SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md) for the decision and its
-consequences for the pitch.
+**Six sources, not seven, and the count is settled** (updated 2026-09-20 after
+B2 Tasks 1 and 2): `reddit`, `youtube`, `news`, `web`, `appstore`, `playstore`.
+Amazon is out because its review text comes back empty, not because of budget.
+The Play Store **review-bomb story is dead** either way: the probe passed on
+field extraction and returned 3 reviews per listing, which is coverage, not a
+velocity signal. Do not build a demo beat on it.
+[SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md) still says seven and is stale;
+it lives on `main` and B7 owns the fix.
+
+### The Apple review RSS is per-app, and a healthy-looking response can be empty
+
+Measured 2026-09-20 by B2 Task 3, `in` storefront, `sortBy=mostRecent`, three
+identical attempts each, deterministic. All HTTP 200, all a well-formed feed
+envelope with `author`, `updated`, `title`, `link`, `id`:
+
+| App | id | entries |
+|---|---|---|
+| boAt Hearables | 1592550875 | **0** |
+| boAt Wearables | 1542443145 | **0** |
+| boAt Shopping | 6475390290 | 36 |
+| NoiseFit | 1498457147 | **0** |
+| NoiseFit Track | 1573689962 | 50 |
+| GOBOULT Amp | 6476545014 | **0** |
+| GOBOULT Fit | 1629163626 | **0** |
+| Zomato, control | 434613896 | 50 |
+| Nykaa, control | 1479127399 | **0** |
+
+There is no pattern by popularity: NoiseFit has 122 244 ratings and returns
+nothing, NoiseFit Track has 948 and returns 50. Nykaa returns nothing.
+`sortBy=mostHelpful` made no difference, and `us` on a busy app was also 0
+where `in` was 50.
+
+#### Correction, same day, Task 4: emptiness follows the URL form, not the app
+
+The table above is a true record of what those nine URLs returned. The
+conclusion drawn under it was wrong, and this correction is the finding.
+
+Re-measuring with a 4-form × 9-app matrix and 6 repeated runs: **boAt Shopping
+went 36 → 0 and boAt Hearables went 0 → 50**, on the same ids, the same
+storefront and the same sort. Within one session a given URL is deterministic,
+which is what made the first measurement look stable; across forms and across
+days it flips.
+
+So strike the sentence "an id that returns nothing today returns nothing on
+stage". It does not hold. What replaces it:
+
+- **Validating an app id once proves nothing about stage.** The check that
+  matters is the one the adapter already makes on every run.
+- `demo/brand.json` uses **1592550875** (boAt Hearables), which returned 50 on
+  the form the adapter builds, and which matches the `playstore` package
+  already listed. It does not use 6475390290.
+- The `appstore` adapter returns an error on a zero-entry feed, the same rule
+  as `playstore`. A source that quietly contributes nothing is worse than one
+  that fails loudly. Given this correction that rule is load-bearing, not
+  belt-and-braces.
+
+#### Read `html`, not `markdown`, when the URL serves JSON
+
+Measured 2026-09-20, 1 credit, scraping the feed URL through
+`POST /v1/url-scraper/scrape`:
+
+| Format | 40 KB feed | `json.Unmarshal` |
+|---|---|---|
+| `html` | the document verbatim | **parses, 50 entries** |
+| `markdown` | `[` escaped to `\[` | fails at char 112 |
+| `cleanedHtml` | every `"` turned into `&#34;` | fails at char 1 |
+
+The scraper treats a JSON body as a document to render, and both derived
+formats are lossy in ways that are invisible until `Unmarshal` refuses. This is
+the same trap as the Play Store rating, one layer down.
+
+The same call also settled the envelope question: the response fields
+(`id`, `status`, `url`, `jobType`, `country`, `html`, `cleanedHtml`,
+`markdown`, `cached`, `createdAt`, `completedAt`, `durationMs`) arrive at the
+**top level, with no envelope**.
+
+Where it works it is the best-shaped source we have: `im:rating`, `im:version`,
+`updated` (RFC 3339), `author.name`, a numeric `id`, `title`, `content`,
+`im:voteSum` and `im:voteCount`. That is a complete `Mention` including
+`Rating` and `Engagement`, from a free public endpoint.
 
 **Nobody fabricates a source.** If the Play Store probe fails, the README and
 the pitch say six sources. Fixtures are recorded from real calls or the source
@@ -81,10 +157,24 @@ chaining Search → URL Scraper (1 credit per URL), or possibly the separate
 `POST /v1/agentic-search` (10 credits + 1/URL). Budget accordingly: a news
 sweep that needs article bodies costs 3 + N credits, not 3.
 
-**UNVERIFIED:** country/locale and freshness/date-range parameters. Not found
-in the docs. If they do not exist, recency is filtered client-side on the
-`date` field, which means we pay for results we then discard. B2 checks this
-against a live call before designing the news adapter.
+**RESOLVED 2026-09-20 by B2 Task 1, live.** There are no country/locale or
+freshness parameters, and the API does **not** tell you so: `country`,
+`freshness` and `date_range` sent together returned **HTTP 200** and were
+silently ignored. The proof is in the results — with `freshness: "week"` set,
+the three results were dated 2025-01-29, empty, and 2022-09-14. So recency is
+filtered **client-side on `date`** and we pay for results we discard, which is
+the expensive branch this note feared. Two further consequences: a 200 never
+proves a parameter was honoured, and **`date` can be an empty string**, so a
+result with no parseable date is dropped rather than defaulted. Full evidence
+in [wire-schemas.md](wire-schemas.md) §6.
+
+**`limit` bounds confirmed live:** `limit: 999` returns
+`400 {"error":"invalid_request","message":"limit must be between 0 and 20"}`.
+
+**The `snippet` is bigger than this section implies.** One measured result was
+2 966 characters of cleaned page text, enough to classify sentiment, intent and
+aspects without chaining a scrape. The "3 + N credits" rule still applies where
+a body is genuinely needed, but the `web` adapter does not need it by default.
 
 ## 3. Wire
 
@@ -144,9 +234,20 @@ extracts the id.
 `am_product_details` (`asin*`), `am_product_reviews` (`asin*`) — "top product
 reviews with ratings, authors, dates".
 
-**UNVERIFIED across all three platforms:** the literal response field names.
-The catalog pages render prose descriptions, not example JSON. This is the
-single biggest unknown left.
+**RESOLVED 2026-09-20 by B2 Task 1**, live, for `rt_search`, `yt_search`,
+`am_search_products` and `am_product_reviews`. Schemas are in
+[wire-schemas.md](wire-schemas.md). `yt_comments` is the one action still
+unread, because Task 1's 10-credit budget ran out at 9. Two findings that
+change the build:
+
+- **The payload is two envelopes deep, at `job.data.data`**, and the array key
+  differs per action (`posts`, `data`, `products`, `reviews`). Unmarshalling one
+  level short yields zero values and no error.
+- **`am_product_reviews` returns 4–6 reviews out of ~15 000, every one with an
+  empty `text` and `title`.** Confirmed on two ASINs. A mention built from it
+  has no text to classify and no distinct content hash, so `amazon` cannot ship
+  as a mention source. The action also has no page, limit or sort parameter, so
+  there is no way to ask for more. Decision and fallout in `HACKATHON_NOTES.md`.
 
 **Mitigation, and B2's first task:** before writing any adapter, call
 `GET /v1/wire/catalog/{reddit,youtube,amazon}` with the real key — these are
@@ -178,6 +279,28 @@ dashboard at demo time.
 Response carries `html`, `cleanedHtml`, `markdown`, `generatedJson`, `cached`,
 `durationMs`.
 
+**`actions` schema, confirmed live 2026-09-20 by B2 Task 2** at a cost of zero
+credits, from four deliberate 400s:
+
+| Type | Required field | Bounds |
+|---|---|---|
+| `wait` | `milliseconds` | 1 to 15 000 |
+| `wait_for` | `selector` | |
+| `click` | `selector` | |
+| `press` | `key` | |
+| `scroll` | none | |
+| `write` | UNVERIFIED, presumably `text` + `selector` | |
+
+`scroll` takes no required field, so `{"type":"scroll"}` is **valid** and bills
+a full scrape. That is how B2 spent a credit expecting a 400.
+
+**`cleanedHtml` is lossy in a way that matters.** On a Play Store listing it
+dropped the per-review star rating (an empty div carrying only an `aria-label`)
+and the reviewer name, while keeping the review bodies. Markdown dropped the
+rating too and reordered the date next to the developer's reply, where it reads
+as the reply date. Any adapter that needs attributes rather than text must take
+the full `html`. Detail in [playstore-probe.md](playstore-probe.md).
+
 Costs: 1 credit basic (browser rendering included, no surcharge), 2 with AI
 summary, 3 with AI JSON extraction. `useBrowser: true` is free — which is what
 makes the Play Store probe cheap enough to try.
@@ -186,17 +309,96 @@ makes the Play Store probe cheap enough to try.
 
 Both async, 202 + `jobId`, then poll.
 
+Everything below the request lines was read live on 2026-09-20 in Task 6, on
+`boat-lifestyle.com`, before writing bp-onboarder. The previous version of this
+section was copied from the documentation and got three things wrong. The URL
+Scraper probe in Task 3 had already shown doc-derived shapes are not reliable
+here, so this one is measured.
+
 `POST /v1/crawl` — `url*`, `maxPages` (default 10, max 100), `depth` (default 1,
 max 5), `includePatterns`, `excludePatterns`, `useBrowser`. **1 credit per page
-crawled.** Poll returns `results[]` with `url`, `html`, `markdown`, `status`.
+crawled.**
 
 `POST /v1/map` — `url*`, `includeSubdomains`, `includeExternalLinks`, `limit`
 (default 100, max 5000), `depth` (default 2, max 5), `search`. **1 credit per
-job.** Poll returns `links[]`, `totalLinks`, `externalLinks[]`.
+job.**
 
-Map is cheap and crawl is not. bp-onboarder maps first, filters the link list
-to product/about pages, then crawls only those — 1 + N credits instead of
-blanket-crawling a site. Cap `maxPages` at 20.
+### What Map actually returns
+
+Job `345b9ad4`, `limit: 100`. Top level is
+`completedAt, createdAt, durationMs, id, links, status, totalLinks, url`.
+
+- **`links` is `[]string`, a flat list of URLs.** It is not a list of objects.
+  A `[]struct{ URL string }` decodes to a slice of empty structs with no error,
+  which is the silent-empty failure this repo keeps hitting.
+- **`externalLinks` is absent from the response**, not empty, when
+  `includeExternalLinks` is not passed. The old text listed it as always
+  present. Decode it as a pointer or check for the key.
+- `totalLinks` was 100, `len(links)` was 100, and the `limit` passed was 100.
+  On this call `totalLinks` is not distinguishable from "how many came back",
+  so do not read it as "how many the site has".
+
+Path distribution of those 100 links: 48 `/products`, 35 `/collections`,
+13 `/pages`, 2 `/account`, 1 `/cart`, 1 root. **The list is products-first**, so
+truncating it at 20 gives 20 product pages and no about page. The page filter
+needs a per-kind quota, not a head-20.
+
+### What Crawl actually returns
+
+Job `c6bb9d31`, seeded at `/pages/warranty`, `maxPages: 2`. Top level is
+`completedAt, completedPages, createdAt, durationMs, id, results, status,
+totalPages, url` — `completedPages` and `totalPages` are both undocumented.
+Each `results[]` element is `durationMs, html, markdown, status, url`.
+**There is no `cleanedHtml`.** Neither response is wrapped in an envelope.
+
+Crawl `markdown` escapes list numbers: `"1\\. Copyright Notice"`. Same trap as
+the App Store `markdown` finding in §1.
+
+### Crawl takes one seed URL and follows links from it
+
+This is the finding that changed bp-onboarder's design. Crawl is not "fetch
+these pages". Seeded at `/pages/warranty` it returned warranty **and**
+`/collections/daily-deals`, a link off that page.
+
+Three request probes, 2026-09-20:
+
+| Body | Result |
+|---|---|
+| `includePatterns: 123` and `[123]` | 400 `invalid_request`, "Invalid JSON body", free |
+| `maxPages: 0` | **202 accepted, crawled 10 pages, 10 credits** |
+| `urls: ["…/pages/warranty"]` alongside `url` | 202, crawled the root only, the `urls` key was ignored |
+
+Two consequences, and both cost money:
+
+- **`maxPages: 0` is not a validation error, it is the default of 10.** A Go
+  zero value reaching this field silently spends 10 credits. bp-onboarder
+  applies its own default before the call rather than letting an unset field
+  through.
+- **Unknown request fields are accepted and ignored.** A misspelled parameter
+  does not 400, it silently does nothing and you are billed for the call it
+  turned into. There is no way to typo-check a request except by reading the
+  response.
+
+`includePatterns` only ever produced the generic "Invalid JSON body" on a type
+error, so the **pattern syntax is UNVERIFIED** — glob, regex or prefix is
+unknown. Nothing here should depend on it.
+
+### So the onboarder maps, then scrapes
+
+Crawling from the site root is wasteful and unsteerable: the 10-page probe
+spent 3 of its 10 credits on `/account`, `/account/login` and `/cart`. Steering
+it away needs `excludePatterns`, whose syntax is unverified.
+
+Once Map has the link list, Crawl has nothing left to offer. `Scrape` costs the
+same 1 credit per URL, fetches exactly the URL given, is synchronous instead of
+submit-and-poll, and its response shape is already verified in §4. bp-onboarder
+therefore maps once, filters the links, and scrapes each kept page: 1 + N
+credits, N pages chosen by us.
+
+This departs from the B2 brief's "then `Client.Crawl` only those", which assumed
+Crawl accepts a list. It does not, and the `urls` probe above shows a list is
+silently ignored rather than rejected. The brief's intent, do not blanket-crawl,
+is what the filter preserves.
 
 ## 6. Credits
 
@@ -209,32 +411,69 @@ Free tier **300 credits, no card, no expiry**. Failed calls are not billed.
 | URL scrape + AI summary / + AI JSON | 2 / 3 |
 | Crawl | 1 per page |
 | Map | 1 per job |
-| Wire Reddit / Amazon actions | 2 |
+| Wire Reddit actions (all 7) | 2 |
+| Wire Amazon `am_*` actions | **1** |
 | Wire `yt_comments` | 3 |
-| Wire `yt_search`, `yt_video`, `yt_channel` | 1 |
+| Wire `yt_search`, `yt_video`, `yt_channel`, `yt_related`, `yt_suggestions` | 1 |
 | Agentic Search | 10 + 1 per URL |
+
+Corrected 2026-09-20 by B2 Task 1: Amazon actions cost **1**, not 2. Every
+catalogue action carries a live `credits_per_call` field, so `internal/anakin`
+should read it rather than keep this table in code. Live action counts are
+Reddit 7, YouTube 6, Amazon 15.
 
 ### The recording budget
 
 B2's one live session, demo brand + 2 competitors:
 
+Revised 2026-09-20 after B2 Task 1. Three lines changed: Amazon is gone, the
+blanket URL-Scraper pass is gone because the Search `snippet` is already large
+enough to classify, and Task 1's own spend is now a real number.
+
 | Item | Calls | Credits |
 |---|---|---|
-| Onboard: map ×3 + crawl 20pp ×1 | 4 | ~23 |
+| **Task 1 schema reads, spent** | 5 billed + 3 free 400s | **9** |
+| **Task 2 Play Store probe, spent** | 3 on the listing + 1 mistake | **4** |
+| **Task 3 App Store id survey, spent** | 4 | **4** |
+| **Task 4 `yt_comments` schema read, spent** | 1 | **3** |
+| **Task 4 scrape-format check on a JSON url, spent** | 1 | **1** |
+| **Task 6 Map and Crawl shape reads, spent** | 2 | **3** |
+| **Task 6 crawl parameter probes, spent in error** | 2 | **11** |
+| Onboard: map ×3 + scrape 20 pages ×1 | 23 | ~23 |
 | Reddit `rt_search`, 3 queries × 3 brands | 9 | 18 |
 | YouTube `yt_search` ×3 + `yt_comments` ×6 | 9 | 21 |
 | News/web Search API, 10 queries | 10 | 30 |
-| URL Scraper on top 20 articles | 20 | 20 |
-| Amazon search ×3 + reviews ×6 | 9 | 18 |
+| URL Scraper, only where a snippet came back short | ~5 | 5 |
 | App Store RSS ×3 | 3 | 3 |
-| Play Store probe ×3 | 3 | 3 |
-| **Subtotal** | | **~136** |
+| Play Store listings ×3, `markdown`+`html` | 3 | 3 |
+| ~~Amazon search ×3 + reviews ×6~~ | 0 | **0** |
+| **Task 7 recording subtotal** | | **~103** |
+| Spent already (Tasks 1 to 6) | | 35 |
 | Retry/headroom | | ~60 |
 | Reserved for the stage live call | | ~10 |
-| **Ceiling** | | **~206 of 300** |
+| **Ceiling** | | **~208 of 300** |
 
-Roughly 95 credits spare. `bp_core.budget.CreditBudget` enforces the ceiling;
-B2 prints a dry-run estimate before spending anything.
+Roughly 92 credits spare. The client's `MaxCredits` ceiling enforces it
+(CONTRACTS §3, `anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate
+before spending anything.
+
+**The 11-credit line is a mistake of mine, not a planned read.** I sent
+`maxPages: 0` to `/v1/crawl` expecting a 400 that would tell me the valid
+range, because failed calls are free. It was accepted as the default of 10 and
+crawled 10 pages. The rule that follows: an out-of-range probe against a
+parameter is only free if the parameter rejects out-of-range values, and on
+this API most do not. Probe with a wrong **type**, which does 400, never with a
+wrong **value**.
+
+**There is no usage or balance endpoint.** `/v1/usage`, `/v1/credits`,
+`/v1/account`, `/v1/me` and `/v1/billing` all 404. This table and the `budget`
+rows in Postgres are the only count that exists, so an overspend is invisible
+until the key stops working. That is the argument for `MaxCredits` being a hard
+client-side stop rather than a warning.
+
+Corpus feasibility without Amazon: Reddit 9 searches × ~15 posts = ~135,
+YouTube 6 × `yt_comments` at `limit: 50` = up to 300, Search 10 × 20 = up to
+200. The Phase 2 gate of ≥ 300 mentions clears on Reddit and YouTube alone.
 
 Rate limits: most `POST` submits 60/min/user, `wire/task` 20/min/user, polling
 `GET`s unlimited but back off at ~1/sec/job. **UNVERIFIED at full-text level** —

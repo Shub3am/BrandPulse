@@ -37,6 +37,11 @@ Newest entry at the bottom of its section.
 | B1 | B4 | **`a2a.Call` is unimplemented.** `internal/a2a` serves nine agents, but the client half that `bp-orchestrator` calls peers with returns `"a2a: Call is not implemented"` on every invocation. It is outside B1 Task 11's checklist and nothing imports it yet, so it is not stubbed into something that returns a plausible zero value. Whoever writes `bp-orchestrator` needs it, and it needs the Nasiko proxy address and routing header, which no track has verified yet. | open |
 | B1 | B7 | **`ci.yml` passes when the tests fail.** `go test ./... \| tee test.log` reports `tee`'s exit status, and Actions runs steps under `bash -e`, which does not imply `pipefail`. Also missing: `-race`, a Postgres 16 service (`internal/db` silently `t.Skip()`s its whole suite without `DATABASE_URL`), and the `http.DefaultClient` grep. Detail and a fix in the B1 entry below. Your file, your call, I have not touched it. | open |
 | B1 | B7 | **Second fast-forward of `main` to `track/b1-core`.** `73ef873` took the import surface; this is the eight commits after it: `anakin`, `llm`, `stats`, `prompts`, `obs`, `internal/a2a`, and the CONTRACTS §1 and §3 corrections. Rebased onto `main@631c9fc`, so `git merge --ff-only track/b1-core` again. | open, **first in the merge order** |
+| ~~B2 (Tasks 4-8)~~ | ~~B1~~ | ~~Nothing in `internal/` exists except `models/`, so an adapter cannot compile~~ | **closed 2026-09-20**, `73ef873` merged into `track/b2-collect` |
+| B2, B3, B4 | B1 | **`ids.New` and `hashing.ContentHash` still `panic("not implemented")`.** They are on the path every mention takes: `mentions.Stamp` calls both on every draft, so any adapter that actually returns a mention panics rather than failing. 23 stubs across `internal/` are in this state. Every adapter test in `internal/anakin/sources/` currently drives `Fetch` with a 2020 collection window so the filter empties the batch and `Stamp` loops zero times. That is a workaround, not coverage: the moment B1 implements these two, those windows move to real dates and the assertions get stronger. | open, blocks Task 7 recording |
+| B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
+| B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
+| B2, B3 | B1 | **`anakin.NewHTTPClient` panics, so the Task 7 recording cannot run and the Task 8 labelling set cannot be sampled.** `demo/record` is written, tested and its dry run prints a 63-credit estimate, but `-confirm` panics at `internal/anakin/anakin.go:194`. B3 is waiting on `fixtures/labelled/mentions.jsonl` and I will not fabricate it: the repo rule is that a source which did not return data does not appear in a fixture, a count or a sentence. **The moment `NewHTTPClient` and `record` mode land I run the session and B3 has the corpus the same hour.** | open, blocks Tasks 7 and 8 |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -310,6 +315,267 @@ Amended 2026-09-20: the original entry put this behind a
 ships, because an alternate branch with no endpoint behind it is a branch
 nobody can test. `research/nasiko.md` §6 still names the switch and is stale on
 that one point.
+
+### 2026-09-20 — B2 Task 1 — Wire field names, live. Open question #3 is closed.
+
+Full schemas, with the real JSON, are in
+[docs/research/wire-schemas.md](docs/research/wire-schemas.md). Commit that file
+before you write an adapter; it is the thing that stops nine agents each
+guessing. Spend: **9 of the ≤ 10 credit Task 1 budget**, 5 billed calls plus 3
+deliberate 400s, which Anakin does not bill.
+
+**The payload is two envelopes deep and the inner key changes per action.**
+This is the finding that matters. `GET /v1/wire/jobs/{id}` returns
+`{"job": {"data": {"data": {...}}}}`, and the array inside that second `data`
+is named differently by every action:
+
+| Action | Path to the array |
+|---|---|
+| `rt_search` | `job.data.data.posts` |
+| `yt_search` | `job.data.data.data` |
+| `am_search_products` | `job.data.data.products` |
+| `am_product_reviews` | `job.data.data.reviews` |
+
+Unmarshal one level short and Go gives you a struct of zero values **and a nil
+error**. That is an empty dashboard on stage with nothing in the logs. Decode
+the exact path or nothing.
+
+**`amazon` is dead as a mention source. It is not a budget cut, it is a
+correctness one.** `am_product_reviews` accepts only `asin`: no page, no limit,
+no sort. On `B0CZ426LLT` it returned 4 reviews of a stated 16 309, on
+`B0C7QHHT63` 6 of 14 401, and on all ten of them `title` and `text` were the
+empty string. A `Mention` built from that has `Text: ""`, so every Amazon
+mention hashes to the same `ContentHash` and dedupe collapses the lot to one
+row. Separately the catalogue is `amazon.com`, not `amazon.in`: prices in USD,
+reviewers in the UK, UAE, Italy and Australia. Wrong country and no text.
+B3, this removes a source from your labelled set, not a few rows.
+
+**Reddit carries no engagement numbers.** `score`, `upvote_ratio` and
+`num_comments` were null on all 15 posts of a `rt_search`, and the `selftext`
+tail shows why: the action reads Reddit's RSS. Recovering them means
+`rt_post_details` at 2 credits a post, 30 credits for counters nothing reads
+today. Decision: Reddit mentions ship with `Engagement` zeroed. **B4, the
+`influencer_mention` rule cannot fire on Reddit.** Do not treat a zero there as
+a measurement.
+
+**`country`, `freshness` and `date_range` on `/v1/search` are accepted and
+silently ignored.** HTTP 200 either way, so a green response proves nothing.
+Proof: under `freshness: "week"` a result came back dated 2022-09-14. Date
+filtering is therefore client-side on the `date` field, and `date` is sometimes
+the empty string. **An empty date must drop the mention.** Defaulting it to
+`time.Now()` is the quiet version of this bug: it would park old posts inside
+the 14-day window and poison every baseline `bp-detector` computes.
+
+**Amazon Wire actions cost 1 credit, not 2.** Reddit's seven actions cost 2,
+Amazon's fifteen `am_*` cost 1. More usefully, `credits_per_call` is a live
+field on the catalogue response, so `internal/anakin` should read the cost
+rather than carry a table that goes stale. §6 of
+[docs/research/anakin.md](docs/research/anakin.md) is corrected, and the
+recording estimate drops from ~136 to **~112**, ceiling ~182 of 300.
+
+**Correction to the `prompt` entry above.** That entry says
+"`docs/research/anakin.md` §3 documents the Search body as carrying a query".
+It does not, and never did: §3 already said `prompt`, at two places. `prompt`
+is confirmed live, sending `query` returns
+`400 {"error":"invalid_request","message":"Prompt is required"}`. Every other
+`query` in that file is a **Wire action parameter**, where `query` is the
+correct name, verified live on `rt_search`, `yt_search` and
+`am_search_products`. So the field name differs between the two surfaces and
+both docs were right. Nothing in `anakin.md` needed that fix; this note is the
+thing that was stale.
+
+Also settled cheaply: `/v1/search` `limit` is bounded 0 to 20, and the `snippet`
+is bigger than "snippet" suggests. The one I measured was **2 966 characters**,
+enough to classify without chaining the URL Scraper. That is why the blanket
+20-page scrape came out of the budget.
+
+### 2026-09-20 — B2 Task 1 — CONTRACTS §4 cannot compile as written
+
+§4 puts each adapter at a flat file in one package, `reddit.go`, `youtube.go`
+and so on, each exporting `Fetch`. The second one is a redeclaration error:
+`Fetch redeclared in this block`. The B2 brief already flagged it and told me
+to post the correction here.
+
+What I am building against, so B1 can confirm or rename rather than redesign:
+one directory per source, `internal/anakin/sources/reddit/`, each with
+`func Fetch(...)`, and `internal/anakin/sources/registry.go` holding the
+hand-written `var Registry = map[models.Source]Adapter{...}`. The `Adapter`
+signature itself is unchanged from §4 and I am not touching it. If B1 prefers
+one package, the fix is `FetchReddit`, `FetchYouTube` and so on, which is the
+same amount of work; what cannot survive is the current text.
+
+### 2026-09-20 — B2 Task 2 — the Play Store probe passes on fields and fails on volume. Six sources.
+
+Closes open question #4. Evidence and the sample markup are in
+[docs/research/playstore-probe.md](docs/research/playstore-probe.md). Spend
+**4 credits**, one over budget; the mistake is owned at the bottom of that file
+and in the numbers table below.
+
+**The fields are all there, in `html`, not in `markdown`.** Review text, star
+rating, review date, a stable UUID review id and the helpful count all extract
+1:1 from a single `useBrowser: true` scrape of the listing. Ask for
+`formats: ["markdown","html"]`, same 1 credit, parse the `html`, ignore the
+`markdown`.
+
+**Markdown alone would have shipped a bug that looked fine.** The star rating is
+an empty div carrying an `aria-label`, so every converter drops it: `out of 5`
+appears zero times in 11 925 characters of returned markdown. Worse, the review
+date does not vanish, it **moves**: markdown flattens it to directly under the
+developer's name and above the developer's reply, where any reader would call
+it the reply date. In the DOM they are two different elements. `cleanedHtml` is
+not a substitute either, it strips the rating and the reviewer name.
+
+**Volume is 3 reviews per listing and nothing moved it.** Plain listing: 3.
+`&showAllReviews=true`: 3, byte-identical markdown, that old trick is dead.
+Click "See all reviews" plus scrolls via the `actions` array: 3, though the
+click did fire (20 s to 40.5 s, HTML grew 14 KB). Play fills that dialog from an
+internal RPC on the dialog's own scroll container. Two retries, brief's cap,
+stop.
+
+**So the source count is six, and the review-bomb story is off the table.**
+`reddit`, `youtube`, `news`, `web`, `appstore`, `playstore`. **B5: the README
+and the pitch say six sources**, and neither should imply we watch Play Store
+review velocity, because at 3 reviews a run we do not. What `playstore` does
+give us is a real star rating, which only `appstore` otherwise has, and
+`Mention.Rating` is a `*float64` for exactly that reason.
+
+**B1, two things for `internal/anakin`.** First, the `actions` DSL is now
+known, free, from four deliberate 400s: `wait` (`milliseconds`, 1 to 15 000),
+`wait_for` (`selector`), `click` (`selector`), `press` (`key`), `scroll` (no
+field), `write` (unverified). Second, **`{"type":"scroll"}` is valid with no
+required field**, returns 200 and bills a scrape. That is the credit I lost, and
+the general lesson is that probing a schema with bad input is free only while
+the input stays bad.
+
+**The playstore adapter must error, never return an empty batch.** Its
+selectors are Google's obfuscated build output (`h3YV2d`, `bp9Aid`, `X5PpBb`,
+`iXRFPc`) and they rotate. A zero-review parse is indistinguishable from a quiet
+week unless the adapter says so out loud. Recorded fixtures keep `replay` green
+whatever Google does.
+
+Note for B3's labelled set: the three reviews came back 3/5, 2/5 and 1/5 on an
+app rated 4.6 overall. Play's default surface is "most helpful", which upvotes
+complaints. Useful for listening, but it is a sampling bias, not a sentiment
+collapse.
+
+### 2026-09-20 — B2 Task 3 — the demo brand is boAt. Two traps came with it.
+
+`demo/brand.json` is committed. It decodes into `models.BrandProfile` with
+`DisallowUnknownFields` and passes `Validate()`; all six `Source` values return
+`Valid() == true`. Spend for this task: **4 credits**, two `rt_search` calls.
+
+| Field | Value |
+|---|---|
+| `brand_id` | `boat-lifestyle` |
+| `name` | boAt (Imagine Marketing Limited) |
+| `website` | https://www.boat-lifestyle.com/ |
+| `competitors` | Noise, boult |
+| `sources` | reddit, youtube, news, web, appstore, playstore |
+| `source_handles.playstore` | `com.boAt.hearables` |
+| `source_handles.appstore` | `6475390290` |
+| `source_handles.amazon` | `B0CZ426LLT` |
+
+Why boAt: the discourse is already proven, not assumed. Task 1's `rt_search`
+returned 15 real posts, `yt_search` returned review videos with comment threads,
+and the two ASINs carry 16 309 and 14 401 reviews. The Play listing has 2.7L
+reviews and 1Cr+ downloads. Nothing here is a hope.
+
+**Trap 1: `match: true` on `rt_search` is a phrase filter and it returns a
+silent zero.** The query `"boAt vs Noise vs boult earbuds"` returned
+`post_count: 0`, `posts: []`, `error: null` and **`posts_dropped_by_filter:
+22`**. Reddit found 22 posts and the client-side filter discarded all of them,
+because it wants the entire query string present in the post. **B2's own
+adapter and anyone else touching Wire: one brand term per call, and read
+`posts_dropped_by_filter`.** Zero posts with a non-zero drop count means the
+query was too specific; zero with a zero drop count means Reddit had nothing.
+Those are different incidents and the response already tells them apart.
+
+**Trap 2: the brand names are polluted, and `NegativeKeywords` is now
+load-bearing rather than decorative.** A single-token `rt_search` for `boult`
+returned 19 posts of which most were cricket, because Trent Boult is a New
+Zealand fast bowler: r/Cricket, r/CricketShitpost, r/RCB, "ETPL FINAL" threads.
+Exactly one of the top twelve was about the audio brand. "boAt" has the same
+problem with actual boats and "Noise" with the English word. So `keywords` are
+all phrases (`boAt Airdopes`, `boAt Rockerz`, never bare `boAt`) and
+`negative_keywords` carries 13 terms covering cricket and sailing. **B3: this
+is a real precision problem in the labelled set, not a tidy demo of a feature.**
+
+**`source_handles.appstore` is boAt Shopping, not boAt Hearables, and that is
+deliberate.** Apple's review RSS returns **zero entries for boAt Hearables**,
+for boAt Wearables, for NoiseFit and for both GOBOULT apps, while returning 36
+for boAt Shopping and 50 for Zomato. Three identical attempts each, so it is
+deterministic, not flaky, and it has nothing to do with popularity: NoiseFit
+has 122 244 ratings and returns nothing. The table is in
+[docs/research/anakin.md](docs/research/anakin.md) §1. **B1 and B5: validate
+every App Store id by fetching it once before it goes into a profile**, because
+the feed returns HTTP 200 and a well-formed envelope with the `entry` key
+simply absent, which decodes to an empty slice and looks identical to "no
+reviews this week".
+
+The `amazon` ASIN is in `source_handles` because the brief asked for it and it
+is a useful reference, but `amazon` is deliberately **not** in `sources`. See
+the Task 1 entry for why.
+
+### 2026-09-20 — B2 Task 4 — six adapters ship, and I have to correct my own Task 3 entry
+
+All six sources are written, tested and on `track/b2-collect`: `reddit`,
+`youtube`, `news`, `web`, `appstore`, `playstore`. `go build ./...`,
+`go vet ./...` and `BP_FIXTURE_MODE=replay go test ./internal/anakin/sources/...`
+are green. No source is faked and none is registered that was not probed.
+
+**Correction to the Task 3 entry above. Do not act on it as written.** It says
+"B1 and B5: validate every App Store id by fetching it once before it goes into
+a profile", on the reasoning that an id that returns nothing today returns
+nothing on stage. That reasoning is wrong. Re-measuring across four URL forms
+with six repeated runs, **boAt Shopping went 36 to 0 and boAt Hearables went 0
+to 50**, same ids, same storefront, same sort. Emptiness follows the URL form
+and the day, not the app. A one-off validation proves nothing about stage. What
+protects us instead is that the `appstore` adapter **errors on a zero-entry
+feed** rather than returning an empty slice, so a bad fetch is loud. The
+measurement matrix is in [docs/research/anakin.md](docs/research/anakin.md) §1
+under "Correction, same day, Task 4". `demo/brand.json` now carries
+`appstore: "1592550875"`, not `6475390290`.
+
+**For B1, four things about `internal/anakin` that my adapters now depend on.**
+None of them need a contract change; they need confirming or fixing in your
+implementation:
+
+1. **`Wire` must return the payload, not the envelope.** Every adapter
+   unmarshals the `json.RawMessage` straight into its own response struct, so
+   `Wire` has to have stripped both layers of the double nesting first
+   (`.data.data`, per wire-schemas.md §1). Same for `Scrape`: fields arrive at
+   the response's top level with no envelope at all, verified live.
+2. **The registry shipped as `Adapters`, not `Registry`.** My Task 1 entry said
+   `var Registry = map[models.Source]Adapter{...}`. It is
+   `var Adapters = map[models.Source]FetchFunc{...}` plus
+   `func For(source) (FetchFunc, bool)` in `internal/anakin/sources/registry.go`.
+   `For` exists because a caller ranging over `BrandProfile.Sources` has to tell
+   "not collected" from "collected nothing", and a nil out of the map does not.
+   The per-source directory layout is unchanged and the §4 signature is exact.
+3. **`WireOpt.Params` is load-bearing.** `yt_comments` needs
+   `Params: {"video_id": ..., "include_replies": true}` and there is no field
+   for either. Whatever `Params` does, it has to reach the action's own
+   parameter object, not the top level.
+4. **`ErrBudgetExceeded` has to survive wrapping.** Every adapter checks
+   `errors.Is(err, anakin.ErrBudgetExceeded)` and treats it as stop-the-run
+   rather than skip-this-keyword, returning the partial batch it already paid
+   for. If the real client returns a fresh error instead of wrapping the
+   sentinel, six adapters will keep spending after the ceiling.
+
+**`go.mod` gained `golang.org/x/net v0.47.0`**, for `html.Parse` in the
+`playstore` adapter. It is the only new dependency B2 adds. Google's listing is
+obfuscated build output with rotating class names, and a regex over it would
+fail silently on the next rotation; the parser fails loudly instead.
+
+**`yt_comments` is no longer an open schema.** Read live for 3 credits, written
+up in [wire-schemas.md](docs/research/wire-schemas.md) §4. Every open schema
+from Task 1 is now closed. Watch out for three shapes if you touch YouTube:
+`likes` is a string, `published` is relative prose and can carry an
+` (edited)` suffix, and `reply_count` is `null` rather than `0`.
+
+**Credits: 21 spent of 300.** Task 1 nine, Task 2 four, Task 3 four, Task 4
+four. The Task 7 recording estimate is ~103 and the ceiling including headroom
+is ~194 of 300.
 
 ### 2026-09-20 — B1 — the import surface is up: `brandpulse/internal/...` compiles
 
@@ -859,6 +1125,12 @@ The things nobody has verified yet. Claim one by putting your track in the
 | 3 | The literal field names in Wire responses per action. | B2, Task 1 | A guessed field name is an empty dashboard on stage. |
 | 4 | Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`? | B2, Task 2 | Decides six sources or seven. |
 | ~~5~~ | ~~Does DronaHQ's WhatsApp trigger send outbound?~~ | ~~B5, Task 7~~ | **moot 2026-09-20**, WhatsApp is out of the MVP. The verified answer is kept in `research/dronahq.md` §1 for whoever switches it on later. |
+| 1 | Which `a2a-go/v2` helper emits a **JSON** artifact? | B1, Task 1 | All nine agents need it. Lands as `a2a.JSONArtifact`. |
+| 2 | How is a peer agent addressed through the Nasiko proxy? The env var name is unverified. | B5, Task 1 | Lands as `a2a.Call`. No agent writes a peer URL directly. |
+| 7 | Do OTel traces from a self-instrumented Go container actually reach `nasiko observe`? | B5, Task 2 | If not, nine agents are invisible in the control plane. Deploy blocker, not polish. |
+| ~~3~~ | ~~The literal field names in Wire responses per action.~~ | ~~B2, Task 1~~ | **closed 2026-09-20**, see "Wire field names, live" above |
+| ~~4~~ | ~~Does the Play Store listing yield review text, rating and date through URL Scraper with `useBrowser: true`?~~ | ~~B2, Task 2~~ | **closed 2026-09-20**, yes from `html`, but only 3 reviews a listing. Six sources. |
+| 5 | Does DronaHQ's WhatsApp trigger send outbound, or do we need the Twilio connector? | B5, Task 7 | The 9am brief depends on it. Meta's 24-hour window may force a template. |
 | 6 | Does DronaHQ's Charts control expose the Plotly `hole` config for a donut? | B5, Task 6 | Cosmetic. Ship a pie if not. |
 | 8 | What is the OTLP collector's address from inside an agent container, and does a Go span show up in `nasiko observe`? | B5, Task 2 | The remainder of #7. Needs a live cluster, so it needs the Nasiko credential first. |
 
@@ -1168,9 +1440,14 @@ brackets and is replaced, never quietly promoted.
 
 | Number | Value | Source | Owner |
 |---|---|---|---|
-| Credits spent recording fixtures | _(est. ~136)_ | B2 Task 7 actual | B2 |
+| Credits spent on Task 1 schema reads | **9** of ≤ 10 | B2 Task 1, actual | B2 |
+| Credits spent on the Play Store probe | **4** of 3, one over, see the Task 2 entry | B2 Task 2, actual | B2 |
+| Credits spent picking the demo brand | **4**, two `rt_search` calls | B2 Task 3, actual | B2 |
+| **Credits spent, running total** | **17 of 300** | B2 | B2 |
+| Credits spent recording fixtures | _(est. ~103, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
 | Mentions in the fixture corpus | — | `fixtures/` count | B2 |
-| Sources shipped | _(7, or 6 if Play probe fails)_ | B2 Task 2 | B2 |
+| Sources shipped | **6** | B2 Task 2, settled | B2 |
+| Play Store reviews per listing per run | **3** | B2 Task 2, actual | B2 |
 | Sentiment accuracy | — | `go run ./eval/accuracy` | B3 |
 | Intent accuracy | — | `go run ./eval/accuracy` | B3 |
 | Cost per brand-day, cold | _(target < ₹15)_ | `go run ./eval/cost` | B3 |
@@ -1179,3 +1456,96 @@ brackets and is replaced, never quietly promoted.
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
 | Time from mention to alert on screen | — | measured in the browser, `alerts.created_at` to the alert feed's receipt, per the scope change | B6 |
 | Nasiko PR | — | link | B5 |
+
+### 2026-09-20 — B2 Tasks 6 and 7 — Crawl is not what the docs say, and it cost me 11 credits to find out
+
+**bp-onboarder and demo/record ship. The recording session does not, and that
+is on B1's stub, not on scope.**
+
+#### Crawl takes one seed URL and follows links. It does not take a list.
+
+`docs/research/anakin.md` §5 said "map first, filter the link list, then crawl
+only those". That plan cannot be expressed: `POST /v1/crawl` accepts one `url`
+and crawls outward from it. I seeded `/pages/warranty` and got warranty plus
+`/collections/daily-deals`, a link off that page. Passing a `urls` array
+alongside `url` is **silently ignored**, not rejected: the job came back having
+crawled the root only, and I paid for it.
+
+So bp-onboarder maps once, filters the links itself, and **scrapes** the ones it
+keeps. `Scrape` costs the same 1 credit per URL, fetches exactly the URL given,
+is synchronous rather than submit-and-poll, and its response shape was already
+verified in Task 3. Once Map has done the discovery, Crawl has nothing left to
+offer. §5 now carries the live shapes.
+
+#### Two API behaviours that will cost another track money
+
+- **`maxPages: 0` is not a validation error. It is the default of 10.** I sent
+  it expecting a free 400 that would tell me the valid range. It was accepted
+  and crawled 10 pages. **A Go zero value reaching this field spends 10
+  credits.** That is why bp-onboarder resolves `MaxPages == 0` to 25 before the
+  call rather than letting an unset field through to the wire.
+- **Unknown request fields are accepted and ignored.** A misspelled parameter
+  does not 400. It silently does nothing and you are billed for whatever call it
+  turned into. There is no way to typo-check a request except by reading the
+  response and noticing it did not do what you asked.
+
+The rule I should have been following, and now am: probe with a wrong **type**,
+which does 400 and is free. Never with a wrong **value**.
+
+#### There is no usage endpoint
+
+`/v1/usage`, `/v1/credits`, `/v1/account`, `/v1/me` and `/v1/billing` all 404.
+The table in research §6 and the `budget` rows in Postgres are the only count
+that exists, so an overspend is invisible until the key stops working. **That is
+the argument for `MaxCredits` being a hard client-side stop, not a warning.**
+Whoever implements `NewHTTPClient`: there is no server-side safety net behind
+you.
+
+Credits stand at **35 of 300**, of which 11 were the mistake above. The
+recording plan estimates 63, leaving 202.
+
+#### Map's shape, for anyone decoding it
+
+`links` is a flat **`[]string`**, not a list of objects. A `[]struct{URL string}`
+decodes to a slice of empty structs **with no error**, which is the
+silent-empty failure this repo keeps hitting. `externalLinks` is **absent** from
+the response unless `includeExternalLinks` is passed, so decode it as a pointer
+or check for the key.
+
+The link list is **products-first**: 48 `/products`, 35 `/collections`, 13
+`/pages` on boat-lifestyle.com. Truncating it at 25 gives 25 product pages and
+no about page, so bp-onboarder takes turns between the three kinds instead of
+taking the head of the list.
+
+#### One ask of B1, and it is the only thing standing between B3 and a corpus
+
+`NewHTTPClient` plus `record` mode. `demo/record` is written and green, its dry
+run prints the estimate and spends nothing, and `-confirm` panics at
+`internal/anakin/anakin.go:194`. Everything downstream of the recording, the
+fixture corpus and B3's labelling set, is waiting on that one constructor.
+
+#### For B5, on the onboarder's cost
+
+bp-onboarder is capped at **30 Anakin credits and one LLM call**, both tested.
+Onboarding one brand is 1 map plus up to 29 scrapes. The default page count is
+25 per CONTRACTS §2 and the agent applies it; pass a smaller `max_pages` if you
+are onboarding on stage, because 26 credits per brand is real money against 300.
+
+#### Two smaller asks of B1, neither of them blocking
+
+Both came out of a cleanup pass over bp-onboarder and `demo/record`, and both
+are in `internal/`, which I do not write to from this worktree.
+
+1. **`anakin.ModeFromEnv()`.** bp-collector, bp-onboarder and `demo/record` each
+   read `BP_FIXTURE_MODE` and each re-apply the "empty means replay, never live"
+   rule by hand. That rule is the zero-credit CI guarantee and it is currently
+   three copies. One exported helper in `internal/anakin` makes it one.
+2. **A batch method on `anakin.Client`.** `docs/research/anakin.md` §4 documents
+   `POST /v1/url-scraper/batch`, async, up to 10 URLs per job. The onboarder
+   scrapes up to 29 pages one blocking call at a time, which is 90 to 145
+   seconds of wall clock in live mode on a path DronaHQ calls with a human
+   waiting on a form. Batch turns 29 round trips into 3. The interface is frozen
+   B1 territory, so this is a request, not a change. It costs the same credits.
+
+Neither matters in `replay` mode, which is CI and the demo, so neither is on the
+critical path for Sunday.

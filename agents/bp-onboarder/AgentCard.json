@@ -1,0 +1,31 @@
+{
+  "protocolVersion": "1.0",
+  "name": "bp-onboarder",
+  "description": "Turns a brand's own website into the keyword set the collectors search for.",
+  "url": "http://bp-onboarder:8080/",
+  "version": "0.1.0",
+  "preferredTransport": "http",
+  "transport": "http",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "onboard_brand",
+      "name": "Onboard a brand",
+      "description": "Maps the brand's website, scrapes a spread of its product, shop and about pages, and returns an unconfirmed BrandProfile carrying 15 to 20 search keywords, product names, hashtags and the negative keywords that separate the brand from name collisions. Spends at most 30 Anakin credits and one LLM call.",
+      "tags": ["onboarding", "keywords", "anakin", "map", "scrape", "brand-profile"],
+      "examples": [
+        "Onboard boAt from https://www.boat-lifestyle.com with competitors Noise and boult."
+      ],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"]
+    }
+  ],
+  "llm_provider": "nasiko-router",
+  "tags": ["brandpulse", "onboarding"]
+}
