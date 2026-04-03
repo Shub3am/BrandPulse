@@ -23,6 +23,7 @@ Newest entry at the bottom of its section.
 | ~~B2, B3, B4~~ | ~~B1~~ | ~~the `internal/` import surface as compiling signatures~~ | **closed 2026-09-20**, B1 Task 1, see "the import surface is up" below |
 | B2, B3, B4 | B1 | `internal/anakin` with working `replay` mode | open |
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
+| B3, and therefore B5's first deploy | B1 | `models.SOVInput` in `agentio.go`, plus `obs.Setup` and `a2a.Serve`. **bp-sov is three of these symbols away from compiling.** Its `AgentCard.json` and `Dockerfile` are committed and its counting logic is specified; the handler cannot be written because its input type does not exist. bp-sov is the agent B5 deploys first to prove the Nasiko path, so this is the critical path, not one track's inconvenience. | open, **B1 Task 0/1** |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | ~~B6~~ | ~~B1~~ | ~~`internal/models/agentio.go`, so the BFF's envelope shapes are unverifiable~~ | **closed 2026-09-20**, the file exists and compiles |
@@ -269,6 +270,62 @@ registered on a stdlib mux, and the well-known card path is
 `internal/a2a` is stdlib-only for now so this commit could land in minutes, and
 pulling in its grpc and protobuf dependencies is B1 Task 11. `a2a.JSONArtifact`
 still has no verified SDK helper behind it; question 1 stays open.
+### 2026-09-20 — B3 — internal/cluster is done and measured, and the cutoff is 0.85
+
+`internal/cluster` has landed on `track/b3-intel`: TF-IDF, average-linkage
+agglomerative merging, cosine distance, English + Hinglish stopwords. Standard
+library only, no `models` import, no context, no I/O. 339 lines of
+implementation against the ADR's 240–320 estimate; the overshoot is
+`stopwords.go`, which is a word list rather than algorithm.
+
+**Measured, Apple M5, 400 documents** (`go test -bench=. -benchmem`):
+
+```
+BenchmarkTFIDF400-10            5092     236604 ns/op    401363 B/op   1216 allocs/op
+BenchmarkAgglomerative400-10     100   10774839 ns/op   1311606 B/op    858 allocs/op
+```
+
+0.24 ms to vectorise and 10.8 ms to cluster a full brand-day. The ADR's claim
+that an O(n²) hand-roll is affordable at this corpus size is now a number
+rather than an assumption, and there is no case for optimising it.
+
+**The distance cutoff is 0.85** and it is not on a knife edge. On the toy
+corpus, within-topic distances run 0.44–0.76 and cross-topic distances are
+exactly 1.0, so every cutoff from 0.80 to 0.98 yields the identical three
+clusters. A test pins that band. The constant itself lives in `bp-clusterer`,
+not in the package.
+
+Two findings worth other tracks' attention:
+
+**1. `CosineDistance` can exceed 1.0.** The specified `idf = log(N/(1+df))`
+goes negative for a term in every document, so two rows can be opposed and the
+distance can reach 2. A cutoff of 1.0 therefore merges the whole corpus into
+one cluster. Nobody outside `bp-clusterer` should be picking a cutoff, but if
+you are, do not assume the range is [0, 1].
+
+**2. A zero vector is reachable and it was a NaN waiting to happen.** That same
+IDF is exactly 0 for a term appearing in N-1 documents, so a document whose
+every term is corpus-wide vectorises to all zeros. Normalising it would produce
+NaN, which does not fail in the clusterer: it fails wherever the artifact is
+marshalled, as `json: unsupported value`, several agents downstream. Guarded
+and tested. Flagging it because the same shape of trap exists anywhere we
+divide by a computed norm or a count.
+
+### 2026-09-20 — B3 — `research/nasiko.md` §4 is stale on language, not on build context
+
+§4's Dockerfile is `FROM python:3.13-slim` with a `pip install`. The repo is Go.
+The rule it states is still right and still load-bearing — **build context is
+the repo root**, because no agent directory can see `internal/` on its own —
+but the body is superseded by `agents/CLAUDE.md`, which specifies multi-stage
+`golang:1.27` with `CGO_ENABLED=0` onto a distroless static base. B3's three
+Dockerfiles follow `agents/CLAUDE.md`. §6 is stale in the same way, naming
+`sklearn.feature_extraction.text.TfidfVectorizer` for a vectoriser that is now
+339 lines of Go. B5 owns that doc; flagging rather than editing it.
+
+One detail other agent owners will hit: the Dockerfile copies `go.*`, not
+`go.mod` and `go.sum` separately. There is no `go.sum` until B1 adds the first
+third-party dependency, and Docker's `COPY` fails on a glob that matches
+nothing.
 
 ---
 
