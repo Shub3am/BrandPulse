@@ -24,6 +24,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/bp-enricher /bp-enricher
 
+# a2a.LoadCard reads the card at startup, so it has to be in the run stage too.
+# Image root rather than beside the binary's source path, because distroless
+# has no shell to set a working directory from and main.go hardcodes /.
+COPY --from=build /src/agents/bp-enricher/AgentCard.json /AgentCard.json
+
 # Nasiko injects PORT at runtime. 8000 is the local default and matches the
 # platform's own examples.
 EXPOSE 8000
