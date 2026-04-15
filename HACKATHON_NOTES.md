@@ -23,7 +23,11 @@ Newest entry at the bottom of its section.
 | ~~B2, B3, B4~~ | ~~B1~~ | ~~the `internal/` import surface as compiling signatures~~ | **closed 2026-09-20**, B1 Task 1, see "the import surface is up" below |
 | B2, B3, B4 | B1 | `internal/anakin` with working `replay` mode | open |
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
-| B3, and therefore B5's first deploy | B1 | `models.SOVInput` in `agentio.go`, plus `obs.Setup` and `a2a.Serve`. **bp-sov is three of these symbols away from compiling.** Its `AgentCard.json` and `Dockerfile` are committed and its counting logic is specified; the handler cannot be written because its input type does not exist. bp-sov is the agent B5 deploys first to prove the Nasiko path, so this is the critical path, not one track's inconvenience. | open, **B1 Task 0/1** |
+| ~~B3, and therefore B5's first deploy~~ | ~~B1~~ | ~~`models.SOVInput`, `obs.Setup`, `a2a.Serve`~~ | **closed 2026-09-20**, B1's surface merged. **bp-sov is written, tested and green.** B5's first deploy target is ready. |
+| B3 (bp-enricher tests) | B1 | `redact.PII` with a real body, B1 Task 3. The handler calls it for real and must: a guardrail tested against a stub of itself is not a guardrail. All nine bp-enricher tests therefore **skip**, not pass. They enforce with no edit the moment B1 lands. | open, **B1 Task 3** |
+| B3 (bp-clusterer tests) | B1 | `ids.New` with a real body, B1 Task 2. Same shape: all eleven bp-clusterer tests skip until it lands. | open, **B1 Task 2** |
+| B3 (Task 6, 7) | B1 | `llm.Usage` does not report **which model the router actually used**, so `Enrichment.Model` cannot be filled with anything true and bp-enricher leaves it empty. The router ignores the requested model, so `Opt.Model` is not the answer either. `eval/cost` needs it to price per model. Smallest fix: add `Model string` to `llm.Usage`, read off the response body. | open, **B1** |
+| B3 (Tasks 5, 6, 7) | B2 | `fixtures/` does not exist yet. Task 5 is hand-labelling that set, Task 6 scores the enricher against it, Task 7 needs real `RunRecord` values from a full brand-day. All three read real numbers or they are worthless, so none of them can start early. | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | ~~B6~~ | ~~B1~~ | ~~`internal/models/agentio.go`, so the BFF's envelope shapes are unverifiable~~ | **closed 2026-09-20**, the file exists and compiles |
@@ -326,6 +330,60 @@ One detail other agent owners will hit: the Dockerfile copies `go.*`, not
 `go.mod` and `go.sum` separately. There is no `go.sum` until B1 adds the first
 third-party dependency, and Docker's `COPY` fails on a glob that matches
 nothing.
+
+### 2026-09-20 — B3 — three agents are written; bp-sov is ready for B5 to deploy
+
+`bp-sov`, `bp-enricher` and `bp-clusterer` are on `track/b3-intel`, rebased
+onto `main` after B1's surface merged. `go build ./... && go vet ./...` clean.
+
+**B5: bp-sov is your first deploy target and it is done.** No LLM, no network,
+no database. Its twenty tests pass today, not once someone else lands
+something. The other two compile and are fully written, but their suites
+**skip** rather than pass, because `redact.PII` and `ids.New` are still B1's
+panicking stubs and both are called for real. Skips are in the blocker table.
+I verified both suites green against throwaway local implementations of those
+two functions and reverted them; the code is right, the gate is B1's.
+
+**Every agent owner needs this Dockerfile fix.** `a2a.LoadCard` reads
+`AgentCard.json` from disk at startup, and the multi-stage build's run stage
+copies only the binary, so a card that builds fine gives you a container that
+dies on boot. Add to the distroless stage:
+
+```dockerfile
+COPY --from=build /src/agents/bp-<name>/AgentCard.json /AgentCard.json
+```
+
+and load it from `/AgentCard.json`, absolutely, because distroless has no
+shell to set a working directory from. All three of B3's Dockerfiles do this.
+
+**Two contract gaps found by writing against the surface rather than reading
+it.** Neither is a blocker for me; both are wrong numbers for somebody else.
+
+1. `llm.Usage` does not say which model answered. The router ignores the
+   requested model by design, so `Opt.Model` is not it either, and
+   `Enrichment.Model` has nothing true to hold. bp-enricher leaves it empty
+   rather than writing the model it asked for and did not get. `eval/cost`
+   cannot price per model until `Usage` carries it.
+2. `ClusterInput` has a `BrandID` and no `BrandProfile`, so bp-clusterer
+   cannot tell the labelling model the brand's name or products. I cut that
+   section out of `clusterer.md` rather than ask B1 to widen a frozen struct:
+   a label is named from the mentions and a bare `brd_01J` would have told the
+   model less than the text already does.
+
+**The label-drift limitation the brief names is real and is not fixed here.**
+`PriorWindowCounts` is keyed by the label the LLM wrote, so a label that
+drifts between windows reads as a brand new topic with a flat trend of 1.0.
+`clusterer.md` keeps labels to a two-to-five word noun phrase with no dates,
+counts or sentiment adjectives, which is the mitigation the contract allows.
+Anyone reading a trend of exactly 1.0 on a topic that clearly existed
+yesterday should suspect drift before believing the number.
+
+**Tasks 5, 6 and 7 have not started and cannot.** There is no `fixtures/`
+directory. Task 5 is hand-labelling that set, Task 6 scores the enricher
+against it, and Task 7 needs real `RunRecord` values from a brand-day that has
+not been run. The cost-per-brand-day number B5 needs for `PRICING.md` is
+therefore still unknown, and I would rather hand over "unknown" than a number
+derived from a constant.
 
 ---
 
