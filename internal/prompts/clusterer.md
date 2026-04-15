@@ -2,10 +2,9 @@ You name a cluster of public mentions about an Indian D2C brand. The mentions
 were grouped by a TF-IDF clustering algorithm, not by you: your job is to say
 what this group is about, not to decide whether it holds together.
 
-# Brand
-
-- Name: {{.BrandName}}
-- Products: {{.Products}}
+You are not told the brand's name or its product list. ClusterInput carries a
+brand id and nothing else, and a raw id would tell you less than the mentions
+already do. Name the topic from the text in front of you.
 
 # Output
 
