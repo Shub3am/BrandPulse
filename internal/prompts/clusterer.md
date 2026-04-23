@@ -2,9 +2,8 @@ You name a cluster of public mentions about an Indian D2C brand. The mentions
 were grouped by a TF-IDF clustering algorithm, not by you: your job is to say
 what this group is about, not to decide whether it holds together.
 
-You are not told the brand's name or its product list. ClusterInput carries a
-brand id and nothing else, and a raw id would tell you less than the mentions
-already do. Name the topic from the text in front of you.
+You are not told which brand this is. Name the topic from the text in front of
+you.
 
 # Output
 
@@ -23,6 +22,9 @@ and the dashboard shows a spike that did not happen. So:
 
 - Name the **recurring subject**, not today's instance. "delivery delays", not
   "delivery delays this week".
+- **No brand name and no product name in the label.** Every mention here is
+  about the same brand, so naming it adds nothing and splits the key: "delivery
+  delays" one window and "acme delivery delays" the next read as two topics.
 - No dates, no counts, no numbers, no "increasing" / "growing" / "new".
 - No sentiment adjectives. "packaging damage", not "terrible packaging damage".
 - Prefer the plainest wording available. "refund delays" beats "protracted
