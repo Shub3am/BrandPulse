@@ -3,7 +3,9 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -197,6 +199,46 @@ func benchCorpus() []string {
 	return docs
 }
 
+// wideVocabularyCorpus is also 400 documents, but each one is a topic core
+// padded with words drawn from a 3,000-word background, giving a ~2,700-term
+// vocabulary instead of benchCorpus's 85.
+//
+// Both corpora are here on purpose. Cost in this package scales with the
+// vocabulary, not the document count, so benchCorpus alone reports a number
+// that is true only of itself: it is what made the dense pairwise pass look
+// like 10ms of work when a realistic window was closer to 180ms. Keep both, and
+// distrust a speedup that only shows up on the narrow one.
+//
+// The generator is seeded, so the corpus is the same on every run.
+func wideVocabularyCorpus() []string {
+	cores := [][]string{
+		{"delivery", "delayed", "courier", "shipment", "stuck"},
+		{"price", "value", "money", "discount", "offer"},
+		{"packaging", "damaged", "bottle", "leaked", "crushed"},
+		{"quality", "ingredients", "formula", "texture", "product"},
+		{"support", "refund", "replacement", "ticket", "agent"},
+		{"shampoo", "hairfall", "scalp", "dandruff", "roots"},
+		{"serum", "acne", "glow", "dryness", "patch"},
+		{"order", "cancelled", "payment", "gateway", "failed"},
+	}
+
+	background := make([]string, 3000)
+	for i := range background {
+		background[i] = fmt.Sprintf("bg%dword", i)
+	}
+
+	random := rand.New(rand.NewSource(1))
+	docs := make([]string, 0, 400)
+	for i := 0; i < 400; i++ {
+		tokens := append([]string{}, cores[i%len(cores)]...)
+		for len(tokens) < 25 {
+			tokens = append(tokens, background[random.Intn(len(background))])
+		}
+		docs = append(docs, strings.Join(tokens, " "))
+	}
+	return docs
+}
+
 func BenchmarkTFIDF400(b *testing.B) {
 	docs := benchCorpus()
 	b.ReportAllocs()
@@ -208,6 +250,24 @@ func BenchmarkTFIDF400(b *testing.B) {
 
 func BenchmarkAgglomerative400(b *testing.B) {
 	m := TFIDF(benchCorpus())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Agglomerative(m, toyCutoff, 3)
+	}
+}
+
+func BenchmarkTFIDF400WideVocabulary(b *testing.B) {
+	docs := wideVocabularyCorpus()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		TFIDF(docs)
+	}
+}
+
+func BenchmarkAgglomerative400WideVocabulary(b *testing.B) {
+	m := TFIDF(wideVocabularyCorpus())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -54,17 +54,35 @@ arguments. The distance cutoff and the 8-cluster cap are named constants in
   `bakwas`) are deliberately absent: they are sentiment, and dropping them
   would cost the clusterer its best signal on exactly the mentions that matter.
 - **The naive O(n²) implementation is the intended one.** At 400 documents the
-  distance matrix is 160,000 floats and the whole merge runs in ~11 ms. A
-  nearest-neighbour chain would be faster and materially harder to read, and
-  this is the one algorithm in the repo that cannot be checked against a
-  library. Do not optimise it without a measurement that says it matters.
+  distance matrix is 160,000 floats and at most 400 scans of a shrinking
+  triangle. A nearest-neighbour chain would be asymptotically better and
+  materially harder to read, and this is the one algorithm in the repo that
+  cannot be checked against a library. Do not change the *algorithm* without a
+  measurement that says it matters.
+- **Cost scales with the vocabulary, not the document count.** A row is as wide
+  as the vocabulary and holds one non-zero per distinct term in its document,
+  so anything that walks a row full-width pays `|V|` to consume ~25 values.
+  `sparse.go` exists for that reason and `normaliseAt` walks only the columns a
+  document has. **Benchmark against `wideVocabularyCorpus`, not just
+  `benchCorpus`**: the toy corpus has an 85-term vocabulary and reported the
+  dense pairwise pass at 10 ms when a realistic window cost 175 ms. A speedup
+  visible only on the narrow corpus is not a speedup.
 
 ## Measured, on an Apple M5, 400 documents
 
+`benchCorpus`, 85-term vocabulary, and `wideVocabularyCorpus`, ~2,700 terms:
+
 ```
-BenchmarkTFIDF400-10            5092     236604 ns/op    401363 B/op   1216 allocs/op
-BenchmarkAgglomerative400-10     100   10774839 ns/op   1311606 B/op    858 allocs/op
+BenchmarkTFIDF400-10                             6244     193386 ns/op     401362 B/op   1216 allocs/op
+BenchmarkAgglomerative400-10                      144    8105328 ns/op    1364722 B/op    861 allocs/op
+BenchmarkTFIDF400WideVocabulary-10                739    1658434 ns/op   10584995 B/op   1247 allocs/op
+BenchmarkAgglomerative400WideVocabulary-10        100   11434673 ns/op    1446569 B/op    814 allocs/op
 ```
+
+Before the sparse pairwise pass landed, on the same machine and corpora:
+`TFIDF400` 245710 ns, `Agglomerative400` 9689914 ns, `TFIDF400WideVocabulary`
+3201245 ns, `Agglomerative400WideVocabulary` **174857785 ns**. The realistic
+merge is 15.3x faster; the toy one 1.2x, which is why it went unnoticed.
 
 ## Who calls it
 

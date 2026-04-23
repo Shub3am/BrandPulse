@@ -76,10 +76,14 @@ func TFIDF(docs []string) Matrix {
 	tokenized := make([][]string, len(docs))
 	documentFrequency := map[string]int{}
 
+	// One scratch map cleared per document rather than one allocated per
+	// document: at 400 documents that is 399 map allocations saved for a set
+	// that never outlives the iteration.
+	seen := map[string]struct{}{}
 	for i, doc := range docs {
 		tokenized[i] = Tokenize(doc)
 
-		seen := map[string]struct{}{}
+		clear(seen)
 		for _, term := range tokenized[i] {
 			if _, already := seen[term]; already {
 				continue
@@ -103,36 +107,50 @@ func TFIDF(docs []string) Matrix {
 		inverseDocumentFrequency[column] = math.Log(corpusSize / (1 + float64(documentFrequency[term])))
 	}
 
+	// Weighting and normalising walk only the columns the document actually
+	// has, not the whole vocabulary. A mention is ~25 tokens and the vocabulary
+	// of a real brand-day is thousands of terms, so the full-width form spent
+	// almost all of its time multiplying zeros by zeros. present is reused
+	// across documents; the rows themselves stay dense, because Matrix is a
+	// public type and CosineDistance takes a []float64.
 	rows := make([][]float64, len(docs))
+	present := make([]int, 0, 64)
 	for i, tokens := range tokenized {
 		row := make([]float64, len(terms))
+		present = present[:0]
 		for _, term := range tokens {
-			row[columnOf[term]]++
+			column := columnOf[term]
+			// Counts only ever rise from zero, so a zero here is the first
+			// sighting of this term in this document.
+			if row[column] == 0 {
+				present = append(present, column)
+			}
+			row[column]++
 		}
-		for column := range row {
-			row[column] *= inverseDocumentFrequency[column]
-		}
-		normalise(row)
+		normaliseAt(row, present, inverseDocumentFrequency)
 		rows[i] = row
 	}
 
 	return Matrix{Rows: rows, Terms: terms}
 }
 
-// normalise scales row to unit L2 length in place, so cosine similarity is a
-// plain dot product. A zero row stays zero: there is no direction to preserve
-// and dividing would produce NaN, which marshals as a JSON error rather than a
-// number.
-func normalise(row []float64) {
+// normaliseAt applies the IDF weights at present and scales row to unit L2
+// length in place, so cosine similarity is a plain dot product. Columns outside
+// present are zero and stay zero, weighted or not.
+//
+// A zero row stays zero: there is no direction to preserve and dividing would
+// produce NaN, which marshals as a JSON error rather than a number.
+func normaliseAt(row []float64, present []int, inverseDocumentFrequency []float64) {
 	sumOfSquares := 0.0
-	for _, v := range row {
-		sumOfSquares += v * v
+	for _, column := range present {
+		row[column] *= inverseDocumentFrequency[column]
+		sumOfSquares += row[column] * row[column]
 	}
 	if sumOfSquares == 0 {
 		return
 	}
 	length := math.Sqrt(sumOfSquares)
-	for i := range row {
-		row[i] /= length
+	for _, column := range present {
+		row[column] /= length
 	}
 }

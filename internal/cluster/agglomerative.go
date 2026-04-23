@@ -8,10 +8,14 @@
 // It precomputes the full pairwise distance matrix and rescans every active
 // pair on every merge. At the 400 mentions a brand-day produces that is
 // 160,000 floats and at most 400 scans of a shrinking triangle, which runs in
-// single-digit milliseconds. A nearest-neighbour chain or a priority queue
-// would be asymptotically better and materially harder to read, and this is
-// the one algorithm in the repo nobody can check against a library. The
-// reading cost is the cost that matters here.
+// about 11ms. A nearest-neighbour chain or a priority queue would be
+// asymptotically better and materially harder to read, and this is the one
+// algorithm in the repo nobody can check against a library. The reading cost is
+// the cost that matters here.
+//
+// The rescan is not where the time went. The pairwise pass was, because it dot
+// products vectors that are almost entirely zeros; see sparse.go. Measure
+// against wideVocabularyCorpus before concluding anything about this file.
 //
 // Cluster-to-cluster distances are kept in the same matrix and updated with
 // the Lance-Williams rule, which is exact for average linkage: merging A and B
@@ -53,9 +57,10 @@ func Agglomerative(m Matrix, cutoff float64, minSize int) [][]int {
 	for i := range distance {
 		distance[i] = make([]float64, rowCount)
 	}
+	sparse := sparsify(m.Rows)
 	for i := 0; i < rowCount; i++ {
 		for j := i + 1; j < rowCount; j++ {
-			d := CosineDistance(m.Rows[i], m.Rows[j])
+			d := 1 - sparse[i].dot(sparse[j])
 			distance[i][j] = d
 			distance[j][i] = d
 		}
