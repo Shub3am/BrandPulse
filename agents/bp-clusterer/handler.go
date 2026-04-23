@@ -84,10 +84,14 @@ func (h ClustererHandler) Handle(ctx context.Context, in models.ClusterInput) (m
 			maxLabelledClusters, len(groups), len(groups)-maxLabelledClusters, maxLabelledClusters))
 	}
 
-	grouped := map[int]bool{}
+	// Indices are dense over onBrand, so a slice says that and a map does not.
+	grouped := make([]bool, len(onBrand))
 	for _, group := range labelled {
+		// Ranked once per cluster and used twice: the prompt shows the top 12
+		// and the Topic keeps the top 3, and both want the same order.
 		members := membersOf(onBrand, group)
-		reply, usage, err := labelCluster(ctx, h.chat, members)
+		ranked := byEngagement(members)
+		reply, usage, err := labelCluster(ctx, h.chat, ranked)
 		out.TokensUsed += usage.PromptTokens + usage.CompletionTokens
 		out.CostPaise += usage.CostPaise
 		if err != nil {
@@ -98,7 +102,7 @@ func (h ClustererHandler) Handle(ctx context.Context, in models.ClusterInput) (m
 			continue
 		}
 
-		topic, err := buildTopic(in, reply, members)
+		topic, err := buildTopic(in, reply, members, ranked)
 		if err != nil {
 			out.Errors = append(out.Errors, err.Error())
 			continue
@@ -117,10 +121,11 @@ func (h ClustererHandler) Handle(ctx context.Context, in models.ClusterInput) (m
 	return out, nil
 }
 
-// buildTopic assembles one Topic from a named cluster. Built through NewTopic
-// and validated, because a Topic literal gives Trend 0 and a nil SentimentMix
-// that panics on the first write.
-func buildTopic(in models.ClusterInput, reply labelReply, members []models.EnrichedMention) (models.Topic, error) {
+// buildTopic assembles one Topic from a named cluster. members is in window
+// order and fixes MentionIDs; ranked is the same mentions most-engaged first
+// and fixes TopExamples. Built through NewTopic and validated, because a Topic
+// literal gives Trend 0 and a nil SentimentMix that panics on the first write.
+func buildTopic(in models.ClusterInput, reply labelReply, members, ranked []models.EnrichedMention) (models.Topic, error) {
 	topic := models.NewTopic(ids.New("top"), in.BrandID)
 	topic.WindowStart = in.WindowStart
 	topic.WindowEnd = in.WindowEnd
@@ -134,10 +139,11 @@ func buildTopic(in models.ClusterInput, reply labelReply, members []models.Enric
 		topic.SentimentMix[m.Enrichment.SentimentLabel]++
 	}
 
-	for _, m := range byEngagement(members) {
-		if len(topic.TopExamples) == topExamplesPerTopic {
-			break
-		}
+	examples := ranked
+	if len(examples) > topExamplesPerTopic {
+		examples = examples[:topExamplesPerTopic]
+	}
+	for _, m := range examples {
 		topic.TopExamples = append(topic.TopExamples, m.Mention)
 	}
 
@@ -191,8 +197,9 @@ func byEngagement(members []models.EnrichedMention) []models.EnrichedMention {
 	copy(ranked, members)
 	sort.SliceStable(ranked, func(i, j int) bool {
 		left, right := ranked[i].Mention, ranked[j].Mention
-		if left.Engagement.Total() != right.Engagement.Total() {
-			return left.Engagement.Total() > right.Engagement.Total()
+		leftTotal, rightTotal := left.Engagement.Total(), right.Engagement.Total()
+		if leftTotal != rightTotal {
+			return leftTotal > rightTotal
 		}
 		if !left.PostedAt.Equal(right.PostedAt) {
 			return left.PostedAt.After(right.PostedAt)
