@@ -43,7 +43,14 @@ func (SOVHandler) Handle(ctx context.Context, in models.SOVInput) (models.ShareO
 	}
 
 	out.TotalMentions = overall.total
-	out.BrandShare, out.CompetitorShares = split(overall.shares(), in.Profile.Name)
+
+	// CompetitorShares is the shares map with the brand's own entry lifted out,
+	// so an absent brand key is a genuine 0% rather than a missing value.
+	shares := overall.shares()
+	out.BrandShare = shares[in.Profile.Name]
+	delete(shares, in.Profile.Name)
+	out.CompetitorShares = shares
+
 	for source, t := range perSource {
 		out.BySource[source] = t.shares()
 	}
@@ -113,12 +120,4 @@ func (t *tally) shares() map[string]float64 {
 		shares[name] = 100 * float64(count) / float64(t.total)
 	}
 	return shares
-}
-
-// split lifts the brand's own share out of the shares map, leaving the
-// competitors. An absent brand key is a genuine 0%, not a missing value.
-func split(shares map[string]float64, brandName string) (float64, map[string]float64) {
-	brandShare := shares[brandName]
-	delete(shares, brandName)
-	return brandShare, shares
 }
