@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"brandpulse/internal/llm"
@@ -68,7 +69,7 @@ func (h *EnricherHandler) Handle(ctx context.Context, in models.EnrichInput) (mo
 		uncached = append(uncached, m)
 	}
 
-	for _, batch := range chunk(uncached, batchSize(in.BatchSize)) {
+	for batch := range slices.Chunk(uncached, batchSize(in.BatchSize)) {
 		enrichments, usage, err := h.classify(ctx, batch, redacted, in.Profile)
 		if err != nil {
 			out.Errors = append(out.Errors, err.Error())

@@ -52,19 +52,6 @@ type replyEnrichment struct {
 	AboutCompetitor string                `json:"about_competitor"`
 }
 
-// chunk splits mentions into batches of at most size.
-func chunk(mentions []models.Mention, size int) [][]models.Mention {
-	if size <= 0 {
-		size = defaultBatchSize
-	}
-	batches := make([][]models.Mention, 0, (len(mentions)+size-1)/size)
-	for start := 0; start < len(mentions); start += size {
-		end := min(start+size, len(mentions))
-		batches = append(batches, mentions[start:end])
-	}
-	return batches
-}
-
 // buildPrompt renders the embedded template for one batch. redacted is keyed
 // by mention id and is the only source of text: reaching into the Mention for
 // it would bypass redaction.
