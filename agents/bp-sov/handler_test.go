@@ -37,6 +37,18 @@ func mention(source models.Source, aboutBrand bool, aboutCompetitor string) mode
 	}
 }
 
+// sovInput is the standard window, varying only in what it holds. Every case
+// uses the same profile and the same window, so those are the two things that
+// should not be on screen.
+func sovInput(enriched ...models.EnrichedMention) models.SOVInput {
+	return models.SOVInput{
+		Profile:     testProfile(),
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+		Enriched:    enriched,
+	}
+}
+
 func handle(t *testing.T, in models.SOVInput) models.ShareOfVoice {
 	t.Helper()
 	out, err := SOVHandler{}.Handle(context.Background(), in)
@@ -47,17 +59,12 @@ func handle(t *testing.T, in models.SOVInput) models.ShareOfVoice {
 }
 
 func TestHandleCountsBrandAgainstListedCompetitors(t *testing.T) {
-	in := models.SOVInput{
-		Profile:     testProfile(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Enriched: []models.EnrichedMention{
-			mention(models.SourceX, true, ""),
-			mention(models.SourceX, true, ""),
-			mention(models.SourceReddit, false, "Plum"),
-			mention(models.SourceReddit, false, "The Derma Co"),
-		},
-	}
+	in := sovInput(
+		mention(models.SourceX, true, ""),
+		mention(models.SourceX, true, ""),
+		mention(models.SourceReddit, false, "Plum"),
+		mention(models.SourceReddit, false, "The Derma Co"),
+	)
 
 	out := handle(t, in)
 
@@ -99,16 +106,11 @@ func TestHandleExcludesUnattributableMentionsFromTheDenominator(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			in := models.SOVInput{
-				Profile:     testProfile(),
-				WindowStart: windowStart,
-				WindowEnd:   windowEnd,
-				Enriched: []models.EnrichedMention{
-					mention(models.SourceX, true, ""),
-					mention(models.SourceX, false, "Plum"),
-					tc.excluded,
-				},
-			}
+			in := sovInput(
+				mention(models.SourceX, true, ""),
+				mention(models.SourceX, false, "Plum"),
+				tc.excluded,
+			)
 
 			out := handle(t, in)
 
@@ -129,12 +131,7 @@ func TestHandleExcludesUnattributableMentionsFromTheDenominator(t *testing.T) {
 // counts the brand only when AboutCompetitor is empty, so it belongs to the
 // competitor.
 func TestHandleCountsAComparisonForTheCompetitor(t *testing.T) {
-	in := models.SOVInput{
-		Profile:     testProfile(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Enriched:    []models.EnrichedMention{mention(models.SourceReddit, true, "Plum")},
-	}
+	in := sovInput(mention(models.SourceReddit, true, "Plum"))
 
 	out := handle(t, in)
 
@@ -147,16 +144,11 @@ func TestHandleCountsAComparisonForTheCompetitor(t *testing.T) {
 }
 
 func TestHandleMatchesCompetitorsCaseInsensitively(t *testing.T) {
-	in := models.SOVInput{
-		Profile:     testProfile(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Enriched: []models.EnrichedMention{
-			mention(models.SourceX, false, "plum"),
-			mention(models.SourceX, false, "PLUM"),
-			mention(models.SourceX, false, "  the derma co  "),
-		},
-	}
+	in := sovInput(
+		mention(models.SourceX, false, "plum"),
+		mention(models.SourceX, false, "PLUM"),
+		mention(models.SourceX, false, "  the derma co  "),
+	)
 
 	out := handle(t, in)
 
@@ -172,18 +164,13 @@ func TestHandleMatchesCompetitorsCaseInsensitively(t *testing.T) {
 }
 
 func TestHandleBreaksSharesDownPerSource(t *testing.T) {
-	in := models.SOVInput{
-		Profile:     testProfile(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Enriched: []models.EnrichedMention{
-			mention(models.SourceX, true, ""),
-			mention(models.SourceX, false, "Plum"),
-			mention(models.SourceReddit, true, ""),
-			mention(models.SourceReddit, true, ""),
-			mention(models.SourceNews, false, ""),
-		},
-	}
+	in := sovInput(
+		mention(models.SourceX, true, ""),
+		mention(models.SourceX, false, "Plum"),
+		mention(models.SourceReddit, true, ""),
+		mention(models.SourceReddit, true, ""),
+		mention(models.SourceNews, false, ""),
+	)
 
 	out := handle(t, in)
 
@@ -215,12 +202,7 @@ func TestHandleEmptyWindowProducesNoNaN(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			in := models.SOVInput{
-				Profile:     testProfile(),
-				WindowStart: windowStart,
-				WindowEnd:   windowEnd,
-				Enriched:    tc.enriched,
-			}
+			in := sovInput(tc.enriched...)
 
 			out := handle(t, in)
 
@@ -247,20 +229,15 @@ func TestHandleEmptyWindowProducesNoNaN(t *testing.T) {
 }
 
 func TestHandleSharesSumToOneHundred(t *testing.T) {
-	in := models.SOVInput{
-		Profile:     testProfile(),
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Enriched: []models.EnrichedMention{
-			mention(models.SourceX, true, ""),
-			mention(models.SourceReddit, true, ""),
-			mention(models.SourceNews, false, "Plum"),
-			mention(models.SourceAmazon, false, "The Derma Co"),
-			mention(models.SourceWeb, false, "Minimalist"),
-			mention(models.SourceWeb, false, ""),
-			mention(models.SourceYoutube, true, ""),
-		},
-	}
+	in := sovInput(
+		mention(models.SourceX, true, ""),
+		mention(models.SourceReddit, true, ""),
+		mention(models.SourceNews, false, "Plum"),
+		mention(models.SourceAmazon, false, "The Derma Co"),
+		mention(models.SourceWeb, false, "Minimalist"),
+		mention(models.SourceWeb, false, ""),
+		mention(models.SourceYoutube, true, ""),
+	)
 
 	out := handle(t, in)
 

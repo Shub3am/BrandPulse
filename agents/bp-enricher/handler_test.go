@@ -56,26 +56,25 @@ func newHandler(stub *stubLLM) *EnricherHandler {
 }
 
 // answerAll replies with one well-formed enrichment per mention id found in
-// the prompt, in the order transform returns them.
-func answerAll(order func([]string) []string) func(int, string) (json.RawMessage, llm.Usage, error) {
-	return func(_ int, prompt string) (json.RawMessage, llm.Usage, error) {
-		ids := order(idsInPrompt(prompt))
-		enrichments := make([]replyEnrichment, 0, len(ids))
-		for _, id := range ids {
-			enrichments = append(enrichments, replyEnrichment{
-				MentionID:      id,
-				Sentiment:      -0.8,
-				SentimentLabel: models.SentimentNegative,
-				Emotion:        models.EmotionAnger,
-				Intent:         models.IntentComplaint,
-				Aspects:        []string{"delivery"},
-				IsAboutBrand:   true,
-			})
-		}
-		raw, err := json.Marshal(enrichmentReply{Enrichments: enrichments})
-		usage := llm.Usage{PromptTokens: 100, CompletionTokens: 50, CostPaise: 12}
-		return raw, usage, err
+// the prompt, in the order the prompt listed them. The out-of-order case builds
+// its own closure around reverse, because that is the one thing it is testing.
+func answerAll(_ int, prompt string) (json.RawMessage, llm.Usage, error) {
+	ids := idsInPrompt(prompt)
+	enrichments := make([]replyEnrichment, 0, len(ids))
+	for _, id := range ids {
+		enrichments = append(enrichments, replyEnrichment{
+			MentionID:      id,
+			Sentiment:      -0.8,
+			SentimentLabel: models.SentimentNegative,
+			Emotion:        models.EmotionAnger,
+			Intent:         models.IntentComplaint,
+			Aspects:        []string{"delivery"},
+			IsAboutBrand:   true,
+		})
 	}
+	raw, err := json.Marshal(enrichmentReply{Enrichments: enrichments})
+	usage := llm.Usage{PromptTokens: 100, CompletionTokens: 50, CostPaise: 12}
+	return raw, usage, err
 }
 
 // idsInPrompt pulls the mention ids back out of the rendered prompt. The stub
@@ -100,8 +99,6 @@ func reverse(ids []string) []string {
 	}
 	return out
 }
-
-func identity(ids []string) []string { return ids }
 
 func testMentions(count int) []models.Mention {
 	mentions := make([]models.Mention, 0, count)
@@ -128,7 +125,7 @@ func testProfile() models.BrandProfile {
 
 func TestHandleClassifiesEveryMention(t *testing.T) {
 	requireRedactor(t)
-	stub := &stubLLM{reply: answerAll(identity)}
+	stub := &stubLLM{reply: answerAll}
 
 	out, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{
 		Mentions: testMentions(3),
@@ -197,7 +194,7 @@ func TestHandleJoinsOnMentionIDNotPosition(t *testing.T) {
 // captures the prompt can prove no contact detail reached the model.
 func TestHandleRedactsBeforeThePrompt(t *testing.T) {
 	requireRedactor(t)
-	stub := &stubLLM{reply: answerAll(identity)}
+	stub := &stubLLM{reply: answerAll}
 
 	leaks := []string{"shubham@tvaram.com", "+91 98765 43210", "9876543210"}
 	mentions := []models.Mention{
@@ -241,7 +238,7 @@ func TestHandleBatchesAtMostFiftyPerCall(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := &stubLLM{reply: answerAll(identity)}
+			stub := &stubLLM{reply: answerAll}
 			out, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{
 				Mentions:  testMentions(tc.mentions),
 				Profile:   testProfile(),
@@ -263,7 +260,7 @@ func TestHandleBatchesAtMostFiftyPerCall(t *testing.T) {
 // The property the warm cost number in eval/ depends on.
 func TestHandleSecondRunSpendsNothing(t *testing.T) {
 	requireRedactor(t)
-	stub := &stubLLM{reply: answerAll(identity)}
+	stub := &stubLLM{reply: answerAll}
 	handler := newHandler(stub)
 	in := models.EnrichInput{Mentions: testMentions(5), Profile: testProfile()}
 
@@ -304,7 +301,7 @@ func TestHandleRetriesOnceThenDegradesToNeutral(t *testing.T) {
 				if call == 1 {
 					return json.RawMessage(`{"enrichments":[]}`), llm.Usage{PromptTokens: 10}, nil
 				}
-				return answerAll(identity)(call, prompt)
+				return answerAll(call, prompt)
 			},
 			wantCalls: 2,
 		},
@@ -391,7 +388,7 @@ func TestHandleReturnsMentionsThatAreNotAboutTheBrand(t *testing.T) {
 
 func TestHandleEmptyInput(t *testing.T) {
 	requireRedactor(t)
-	stub := &stubLLM{reply: answerAll(identity)}
+	stub := &stubLLM{reply: answerAll}
 
 	out, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{Profile: testProfile()})
 	if err != nil {
@@ -409,7 +406,7 @@ func TestHandleEmptyInput(t *testing.T) {
 // the model needs to judge IsAboutBrand.
 func TestPromptCarriesTheProfileContext(t *testing.T) {
 	requireRedactor(t)
-	stub := &stubLLM{reply: answerAll(identity)}
+	stub := &stubLLM{reply: answerAll}
 
 	if _, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{
 		Mentions: testMentions(1),

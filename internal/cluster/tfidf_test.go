@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"math"
+	"reflect"
 	"sort"
 	"testing"
 )
@@ -51,14 +52,8 @@ func TestTokenize(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := Tokenize(c.in)
-			if len(got) != len(c.want) {
+			if got := Tokenize(c.in); !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("Tokenize(%q) = %v, want %v", c.in, got, c.want)
-			}
-			for i := range got {
-				if got[i] != c.want[i] {
-					t.Fatalf("Tokenize(%q) = %v, want %v", c.in, got, c.want)
-				}
 			}
 		})
 	}
