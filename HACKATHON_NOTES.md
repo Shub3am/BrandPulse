@@ -23,6 +23,13 @@ Newest entry at the bottom of its section.
 | ~~B2, B3, B4~~ | ~~B1~~ | ~~the `internal/` import surface as compiling signatures~~ | **closed 2026-09-20**, B1 Task 1, see "the import surface is up" below |
 | B2, B3, B4 | B1 | `internal/anakin` with working `replay` mode | open |
 | B3 (Task 4) | B2 | `fixtures/labelled/mentions.jsonl` sample | open |
+| ~~B3, and therefore B5's first deploy~~ | ~~B1~~ | ~~`models.SOVInput`, `obs.Setup`, `a2a.Serve`~~ | **closed 2026-09-20**, B1's surface merged. **bp-sov is written, tested and green.** B5's first deploy target is ready. |
+| B3 (bp-enricher tests) | B1 | `redact.PII` with a real body, B1 Task 3. The handler calls it for real and must: a guardrail tested against a stub of itself is not a guardrail. All nine bp-enricher tests therefore **skip**, not pass. They enforce with no edit the moment B1 lands. | open, **B1 Task 3** |
+| B3 (bp-clusterer tests) | B1 | `ids.New` with a real body, B1 Task 2. Same shape: all eleven bp-clusterer tests skip until it lands. | open, **B1 Task 2** |
+| B3 (Task 6, 7) | B1 | `llm.Usage` does not report **which model the router actually used**, so `Enrichment.Model` cannot be filled with anything true and bp-enricher leaves it empty. The router ignores the requested model, so `Opt.Model` is not the answer either. `eval/cost` needs it to price per model. Smallest fix: add `Model string` to `llm.Usage`, read off the response body. | open, **B1** |
+| B3 (bp-sov, bp-clusterer correctness) | B1 | Nothing downstream can tell a mention the classifier judged off-brand from one it never judged. A twice-failed enricher batch writes the zero `Enrichment`, so `IsAboutBrand: false`, and `EnrichmentBatch.Errors` does not survive the hop because `ClusterInput` and `SOVInput` carry `[]EnrichedMention`. During an LLM outage the SOV denominator silently shrinks. Smallest fix: a field on `Enrichment` saying the classifier ran, and consumers filtering on it. | open, **B1**, see the third contract gap below |
+| B3 (all nine agents, not just mine) | B1 | `internal/a2a` should own card-path resolution (`a2a.LoadCard()` with no argument), the wiring (`a2a.Run(handler)`), and filling the card's `URL` from the environment. Today every track hardcodes `/AgentCard.json` and repeats the same two-step main. Not a blocker; nine merge conflicts if it lands late. | open, **B1** |
+| B3 (Tasks 5, 6, 7) | B2 | `fixtures/` does not exist yet. Task 5 is hand-labelling that set, Task 6 scores the enricher against it, Task 7 needs real `RunRecord` values from a full brand-day. All three read real numbers or they are worthless, so none of them can start early. | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
 | ~~B6~~ | ~~B1~~ | ~~`internal/models/agentio.go`, so the BFF's envelope shapes are unverifiable~~ | **closed 2026-09-20**, the file exists and compiles |
@@ -1109,6 +1116,158 @@ nice-to-have, it is the whole arrangement.
 (`TestNoNetworkRefusesEveryRoundTrip`). Its error names the URL that was
 attempted, so when CI does fail this way the log says which call escaped the
 fixtures rather than just "connection refused".
+### 2026-09-20 — B3 — internal/cluster is done and measured, and the cutoff is 0.85
+
+`internal/cluster` has landed on `track/b3-intel`: TF-IDF, average-linkage
+agglomerative merging, cosine distance, English + Hinglish stopwords. Standard
+library only, no `models` import, no context, no I/O. 339 lines of
+implementation against the ADR's 240–320 estimate; the overshoot is
+`stopwords.go`, which is a word list rather than algorithm.
+
+**Measured, Apple M5, 400 documents** (`go test -bench=. -benchmem`):
+
+```
+BenchmarkTFIDF400-10            5092     236604 ns/op    401363 B/op   1216 allocs/op
+BenchmarkAgglomerative400-10     100   10774839 ns/op   1311606 B/op    858 allocs/op
+```
+
+0.24 ms to vectorise and 10.8 ms to cluster a full brand-day. The ADR's claim
+that an O(n²) hand-roll is affordable at this corpus size is now a number
+rather than an assumption, and there is no case for optimising it.
+
+**The distance cutoff is 0.85** and it is not on a knife edge. On the toy
+corpus, within-topic distances run 0.44–0.76 and cross-topic distances are
+exactly 1.0, so every cutoff from 0.80 to 0.98 yields the identical three
+clusters. A test pins that band. The constant itself lives in `bp-clusterer`,
+not in the package.
+
+Two findings worth other tracks' attention:
+
+**1. `CosineDistance` can exceed 1.0.** The specified `idf = log(N/(1+df))`
+goes negative for a term in every document, so two rows can be opposed and the
+distance can reach 2. A cutoff of 1.0 therefore merges the whole corpus into
+one cluster. Nobody outside `bp-clusterer` should be picking a cutoff, but if
+you are, do not assume the range is [0, 1].
+
+**2. A zero vector is reachable and it was a NaN waiting to happen.** That same
+IDF is exactly 0 for a term appearing in N-1 documents, so a document whose
+every term is corpus-wide vectorises to all zeros. Normalising it would produce
+NaN, which does not fail in the clusterer: it fails wherever the artifact is
+marshalled, as `json: unsupported value`, several agents downstream. Guarded
+and tested. Flagging it because the same shape of trap exists anywhere we
+divide by a computed norm or a count.
+
+### 2026-09-20 — B3 — `research/nasiko.md` §4 is stale on language, not on build context
+
+§4's Dockerfile is `FROM python:3.13-slim` with a `pip install`. The repo is Go.
+The rule it states is still right and still load-bearing — **build context is
+the repo root**, because no agent directory can see `internal/` on its own —
+but the body is superseded by `agents/CLAUDE.md`, which specifies multi-stage
+`golang:1.27` with `CGO_ENABLED=0` onto a distroless static base. B3's three
+Dockerfiles follow `agents/CLAUDE.md`. §6 is stale in the same way, naming
+`sklearn.feature_extraction.text.TfidfVectorizer` for a vectoriser that is now
+339 lines of Go. B5 owns that doc; flagging rather than editing it.
+
+One detail other agent owners will hit: the Dockerfile copies `go.*`, not
+`go.mod` and `go.sum` separately. There is no `go.sum` until B1 adds the first
+third-party dependency, and Docker's `COPY` fails on a glob that matches
+nothing.
+
+### 2026-09-20 — B3 — three agents are written; bp-sov is ready for B5 to deploy
+
+`bp-sov`, `bp-enricher` and `bp-clusterer` are on `track/b3-intel`, rebased
+onto `main` after B1's surface merged. `go build ./... && go vet ./...` clean.
+
+**B5: bp-sov is your first deploy target and it is done.** No LLM, no network,
+no database. Its twenty tests pass today, not once someone else lands
+something. The other two compile and are fully written, but their suites
+**skip** rather than pass, because `redact.PII` and `ids.New` are still B1's
+panicking stubs and both are called for real. Skips are in the blocker table.
+I verified both suites green against throwaway local implementations of those
+two functions and reverted them; the code is right, the gate is B1's.
+
+**Every agent owner needs this Dockerfile fix.** `a2a.LoadCard` reads
+`AgentCard.json` from disk at startup, and the multi-stage build's run stage
+copies only the binary, so a card that builds fine gives you a container that
+dies on boot. Add to the distroless stage:
+
+```dockerfile
+COPY --from=build /src/agents/bp-<name>/AgentCard.json /AgentCard.json
+```
+
+and load it from `/AgentCard.json`, absolutely, because distroless has no
+shell to set a working directory from. All three of B3's Dockerfiles do this.
+
+**Two contract gaps found by writing against the surface rather than reading
+it.** Neither is a blocker for me; both are wrong numbers for somebody else.
+
+1. `llm.Usage` does not say which model answered. The router ignores the
+   requested model by design, so `Opt.Model` is not it either, and
+   `Enrichment.Model` has nothing true to hold. bp-enricher leaves it empty
+   rather than writing the model it asked for and did not get. `eval/cost`
+   cannot price per model until `Usage` carries it.
+2. `ClusterInput` has a `BrandID` and no `BrandProfile`, so bp-clusterer
+   cannot tell the labelling model the brand's name or products. I cut that
+   section out of `clusterer.md` rather than ask B1 to widen a frozen struct:
+   a label is named from the mentions and a bare `brd_01J` would have told the
+   model less than the text already does.
+
+**The label-drift limitation the brief names is real and is not fixed here.**
+`PriorWindowCounts` is keyed by the label the LLM wrote, so a label that
+drifts between windows reads as a brand new topic with a flat trend of 1.0.
+`clusterer.md` keeps labels to a two-to-five word noun phrase with no dates,
+counts or sentiment adjectives, which is the mitigation the contract allows.
+Anyone reading a trend of exactly 1.0 on a topic that clearly existed
+yesterday should suspect drift before believing the number.
+
+**Tasks 5, 6 and 7 have not started and cannot.** There is no `fixtures/`
+directory. Task 5 is hand-labelling that set, Task 6 scores the enricher
+against it, and Task 7 needs real `RunRecord` values from a brand-day that has
+not been run. The cost-per-brand-day number B5 needs for `PRICING.md` is
+therefore still unknown, and I would rather hand over "unknown" than a number
+derived from a constant.
+
+### 2026-09-20 — B3 — a third contract gap, and three things B1 should own instead of nine tracks
+
+A cleanup pass over the three agents surfaced one more contract gap and a
+boundary that is currently being redrawn nine times.
+
+**Gap 3: a twice-failed enrichment batch is indistinguishable from a real
+negative.** When both the batch call and its per-mention retry fail,
+bp-enricher writes the zero `Enrichment`, which means `IsAboutBrand: false`.
+bp-clusterer then drops that mention and bp-sov leaves it out of the
+denominator, so a partial LLM outage quietly *shrinks the window* rather than
+reporting a smaller one. `EnrichmentBatch.Errors` records it honestly, but the
+marker does not survive the hop: `ClusterInput` and `SOVInput` both carry
+`[]EnrichedMention`, not the batch, so nothing downstream can tell a mention
+that was judged off-brand from one that was never judged at all. The smallest
+honest fix is a field on `Enrichment` that says the classifier ran, and
+consumers filtering on it. That is a frozen struct, so it is B1's call and it
+is filed here rather than worked around. Until then: **a share-of-voice number
+computed during an LLM outage is a number over the mentions that survived, and
+`Errors` on the enricher's output is the only place that says so.**
+
+**B1, three things `internal/a2a` should own.** Every agent's `main.go` is
+writing the same three lines today, and the repo rule says main is twenty lines
+and identical everywhere. It is not identical, because each track is solving
+these independently:
+
+1. **Card path resolution.** Distroless has no shell and no working directory
+   you can count on, so every agent hardcodes `/AgentCard.json` and every
+   Dockerfile copies the card there. The absolute path is a deploy detail, not
+   an agent's decision. `a2a.LoadCard()` with no argument should find it.
+2. **The wiring itself.** `card, err := a2a.LoadCard(...)` then
+   `a2a.Serve(card, handler)` is two steps that only ever appear together.
+   `a2a.Run(handler)` would make `main()` one line and delete nine copies of
+   the same error check.
+3. **The card's `URL`.** An agent cannot know the address Nasiko will serve it
+   on, so the value in `AgentCard.json` is a placeholder that is either
+   overwritten at deploy time or wrong. `a2a` should fill it from the
+   environment at startup and the field should be documented as ignored in the
+   file.
+
+None of the three blocks me; all three are the sort of thing that is cheap now
+and is nine merge conflicts on the Sunday. B3's agents follow whatever lands.
 
 ---
 

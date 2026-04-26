@@ -1,0 +1,33 @@
+{
+  "name": "bp-sov",
+  "description": "Counts share of voice for a brand against its named competitors over a time window. Pure counting: no LLM call, no network call, no database read. Input is a SOVInput, output is one application/json artifact holding a ShareOfVoice.",
+  "url": "http://localhost:8000/",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "preferredTransport": "JSONRPC",
+  "transport": "http",
+  "framework": "a2a-go",
+  "agentFramework": "a2a-go",
+  "llm_provider": null,
+  "tags": ["brandpulse", "analytics", "deterministic", "no-llm"],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "share-of-voice",
+      "name": "Share of voice",
+      "description": "Given enriched mentions and a brand profile, returns the brand's percentage share of conversation against each competitor named in the profile, broken down per source. Mentions about neither the brand nor a listed competitor are excluded from the denominator rather than counted for the brand.",
+      "tags": ["share-of-voice", "competitors", "counting"],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"],
+      "examples": [
+        "Compute share of voice for brand_id brd_01J against its competitors over the last 24 hours."
+      ]
+    }
+  ]
+}
