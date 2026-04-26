@@ -27,6 +27,8 @@ Newest entry at the bottom of its section.
 | B3 (bp-enricher tests) | B1 | `redact.PII` with a real body, B1 Task 3. The handler calls it for real and must: a guardrail tested against a stub of itself is not a guardrail. All nine bp-enricher tests therefore **skip**, not pass. They enforce with no edit the moment B1 lands. | open, **B1 Task 3** |
 | B3 (bp-clusterer tests) | B1 | `ids.New` with a real body, B1 Task 2. Same shape: all eleven bp-clusterer tests skip until it lands. | open, **B1 Task 2** |
 | B3 (Task 6, 7) | B1 | `llm.Usage` does not report **which model the router actually used**, so `Enrichment.Model` cannot be filled with anything true and bp-enricher leaves it empty. The router ignores the requested model, so `Opt.Model` is not the answer either. `eval/cost` needs it to price per model. Smallest fix: add `Model string` to `llm.Usage`, read off the response body. | open, **B1** |
+| B3 (bp-sov, bp-clusterer correctness) | B1 | Nothing downstream can tell a mention the classifier judged off-brand from one it never judged. A twice-failed enricher batch writes the zero `Enrichment`, so `IsAboutBrand: false`, and `EnrichmentBatch.Errors` does not survive the hop because `ClusterInput` and `SOVInput` carry `[]EnrichedMention`. During an LLM outage the SOV denominator silently shrinks. Smallest fix: a field on `Enrichment` saying the classifier ran, and consumers filtering on it. | open, **B1**, see the third contract gap below |
+| B3 (all nine agents, not just mine) | B1 | `internal/a2a` should own card-path resolution (`a2a.LoadCard()` with no argument), the wiring (`a2a.Run(handler)`), and filling the card's `URL` from the environment. Today every track hardcodes `/AgentCard.json` and repeats the same two-step main. Not a blocker; nine merge conflicts if it lands late. | open, **B1** |
 | B3 (Tasks 5, 6, 7) | B2 | `fixtures/` does not exist yet. Task 5 is hand-labelling that set, Task 6 scores the enricher against it, Task 7 needs real `RunRecord` values from a full brand-day. All three read real numbers or they are worthless, so none of them can start early. | open |
 | B5 (Tasks 4, 6, 7) | B2, B3, B4 | agents that run | open |
 | B6 (`bff/`) | B4 | a deployed `bp-orchestrator` URL | open |
@@ -384,6 +386,48 @@ against it, and Task 7 needs real `RunRecord` values from a brand-day that has
 not been run. The cost-per-brand-day number B5 needs for `PRICING.md` is
 therefore still unknown, and I would rather hand over "unknown" than a number
 derived from a constant.
+
+### 2026-09-20 — B3 — a third contract gap, and three things B1 should own instead of nine tracks
+
+A cleanup pass over the three agents surfaced one more contract gap and a
+boundary that is currently being redrawn nine times.
+
+**Gap 3: a twice-failed enrichment batch is indistinguishable from a real
+negative.** When both the batch call and its per-mention retry fail,
+bp-enricher writes the zero `Enrichment`, which means `IsAboutBrand: false`.
+bp-clusterer then drops that mention and bp-sov leaves it out of the
+denominator, so a partial LLM outage quietly *shrinks the window* rather than
+reporting a smaller one. `EnrichmentBatch.Errors` records it honestly, but the
+marker does not survive the hop: `ClusterInput` and `SOVInput` both carry
+`[]EnrichedMention`, not the batch, so nothing downstream can tell a mention
+that was judged off-brand from one that was never judged at all. The smallest
+honest fix is a field on `Enrichment` that says the classifier ran, and
+consumers filtering on it. That is a frozen struct, so it is B1's call and it
+is filed here rather than worked around. Until then: **a share-of-voice number
+computed during an LLM outage is a number over the mentions that survived, and
+`Errors` on the enricher's output is the only place that says so.**
+
+**B1, three things `internal/a2a` should own.** Every agent's `main.go` is
+writing the same three lines today, and the repo rule says main is twenty lines
+and identical everywhere. It is not identical, because each track is solving
+these independently:
+
+1. **Card path resolution.** Distroless has no shell and no working directory
+   you can count on, so every agent hardcodes `/AgentCard.json` and every
+   Dockerfile copies the card there. The absolute path is a deploy detail, not
+   an agent's decision. `a2a.LoadCard()` with no argument should find it.
+2. **The wiring itself.** `card, err := a2a.LoadCard(...)` then
+   `a2a.Serve(card, handler)` is two steps that only ever appear together.
+   `a2a.Run(handler)` would make `main()` one line and delete nine copies of
+   the same error check.
+3. **The card's `URL`.** An agent cannot know the address Nasiko will serve it
+   on, so the value in `AgentCard.json` is a placeholder that is either
+   overwritten at deploy time or wrong. `a2a` should fill it from the
+   environment at startup and the field should be documented as ignored in the
+   file.
+
+None of the three blocks me; all three are the sort of thing that is cheap now
+and is nine merge conflicts on the Sunday. B3's agents follow whatever lands.
 
 ---
 
