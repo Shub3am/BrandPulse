@@ -1,0 +1,30 @@
+{
+  "name": "bp-orchestrator",
+  "description": "Runs the nine-step pipeline for one brand and one trigger: claims the run bucket, ranks and caps the sources, collects, enriches, clusters, counts share of voice, detects alerts, drafts replies and writes the brief. No language model. A re-trigger inside the same time bucket is a no-op.",
+  "url": "http://bp-orchestrator:8080/",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "preferredTransport": "JSONRPC",
+  "llm_provider": null,
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "run_pipeline",
+      "name": "Run the pipeline",
+      "description": "Takes a RunInput of brand_id, trigger, window_hours and force, and returns the RunRecord. window_hours of 0 means 24. Idempotent on (brand_id, kind, time_bucket): a second trigger in the same bucket returns the existing record and calls no peer. Fan-out is capped at 8 sources and dropped sources are named in sources_skipped with degraded_reason. Credits, tokens and cost are summed from the child artifacts, never estimated. Drafts replies; posts nothing.",
+      "tags": ["orchestration", "pipeline", "idempotency"],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"],
+      "examples": [
+        "Run the scheduled daily pipeline for brand brd_01J9 over the last 24 hours.",
+        "Run an on-demand pipeline for brand brd_01J9 over the last 2 hours and force it even if this hour already ran."
+      ]
+    }
+  ]
+}
