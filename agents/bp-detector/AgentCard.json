@@ -1,0 +1,30 @@
+{
+  "name": "bp-detector",
+  "description": "Fires five statistical alert rules over a window of enriched mentions: spike, crisis, review_bomb, influencer_mention and competitor_move. Every alert carries the observed value and the threshold that fired it. No language model is involved.",
+  "url": "http://bp-detector:8080/",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "preferredTransport": "JSONRPC",
+  "llm_provider": null,
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "detect_alerts",
+      "name": "Detect alerts",
+      "description": "Takes a DetectInput of enriched mentions plus 14-day baseline statistics and returns an AlertSet. Deterministic: the same input always produces the same alerts and the same dedupe keys.",
+      "tags": ["alerting", "statistics", "deterministic"],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"],
+      "examples": [
+        "Detect alerts for brand brd_01J9 over the last 24 hours against its 14-day baseline.",
+        "Check whether the current hour's Twitter volume and negative share cross the crisis thresholds."
+      ]
+    }
+  ]
+}
