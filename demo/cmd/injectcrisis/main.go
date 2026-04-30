@@ -6,8 +6,10 @@
 // corpus into and out of the database.
 //
 // It must not touch any agent and it must not special-case the detector. It
-// writes only mentions and their enrichment, only for one brand, and only rows
-// carrying the synthetic marker, which is also the only thing -cleanup deletes.
+// writes only mentions and their enrichment, only for one brand. The synthetic
+// marker is the only thing it ever deletes, whether from -cleanup or from the
+// clear an injection does before it writes, so a scraped mention is never at
+// risk from a demo command.
 package main
 
 import (
@@ -19,6 +21,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"brandpulse/demo/crisis"
@@ -41,10 +45,9 @@ func main() {
 // run is separate from main so the -dry-run path is testable without a
 // database, which is the path CI runs.
 func run(ctx context.Context, brandID string, dryRun, doCleanup bool, out io.Writer) error {
-	corpus := crisis.Mentions(brandID, time.Now().UTC())
-
 	if dryRun {
-		return describe(out, brandID, corpus)
+		describe(out, brandID, crisis.Mentions(brandID, time.Now().UTC()))
+		return nil
 	}
 
 	pool, err := db.Pool(ctx)
@@ -62,7 +65,7 @@ func run(ctx context.Context, brandID string, dryRun, doCleanup bool, out io.Wri
 		return nil
 	}
 
-	inserted, err := insert(ctx, pool, corpus)
+	inserted, err := insert(ctx, pool, brandID, crisis.Mentions(brandID, time.Now().UTC()))
 	if err != nil {
 		return err
 	}
@@ -74,18 +77,10 @@ func run(ctx context.Context, brandID string, dryRun, doCleanup bool, out io.Wri
 // describe prints the surge without opening a connection. It prints the
 // per-source counts and the window rather than forty lines of text, because
 // what a reader needs to check is the shape the rules bucket on.
-func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) error {
-	if len(corpus) == 0 {
-		return fmt.Errorf("the corpus is empty, nothing to inject")
-	}
-
+func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 	perSource := map[models.Source]int{}
-	influencers := 0
 	for _, em := range corpus {
 		perSource[em.Mention.Source]++
-		if em.Mention.AuthorFollowers > 0 {
-			influencers++
-		}
 	}
 
 	fmt.Fprintf(out, "dry run: %d synthetic mentions for %s, nothing written\n", len(corpus), brandID)
@@ -95,24 +90,29 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) er
 	for _, source := range crisis.Sources {
 		fmt.Fprintf(out, "  %-10s %d mentions\n", source, perSource[source])
 	}
-	fmt.Fprintf(out, "influencers: %d authors over the detector's follower threshold\n", influencers)
+	fmt.Fprintf(out, "influencers: %d authors over the detector's follower threshold\n", crisis.Influencers)
 	fmt.Fprintf(out, "marker: every row carries raw.%s = true\n", crisis.SyntheticKey)
-	return nil
 }
 
-// insert writes the mentions and their enrichment in one transaction, so a
-// half-injected crisis never reaches the stage.
+// insert replaces the brand's last injection with this one, in one
+// transaction, so a half-injected crisis never reaches the stage.
 //
-// ON CONFLICT DO NOTHING on both tables makes a repeat injection a no-op
-// instead of forty more rows: the ids and content hashes are derived from the
-// index, not generated fresh.
-func insert(ctx context.Context, pool *pgxpool.Pool, corpus []models.EnrichedMention) (int, error) {
+// It clears first because the demo is rehearsed: the corpus is anchored to the
+// current hour, so leaving yesterday's rows in place would leave the surge in
+// an hour bucket the detector no longer looks at while the command reported a
+// successful injection. The count returned is what Postgres actually wrote.
+func insert(ctx context.Context, pool *pgxpool.Pool, brandID string, corpus []models.EnrichedMention) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("beginning the injection: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	if _, err := cleanup(ctx, tx, brandID); err != nil {
+		return 0, err
+	}
+
+	batch := &pgx.Batch{}
 	for _, em := range corpus {
 		if err := em.Mention.Validate(); err != nil {
 			return 0, fmt.Errorf("mention %q: %w", em.Mention.ID, err)
@@ -130,49 +130,71 @@ func insert(ctx context.Context, pool *pgxpool.Pool, corpus []models.EnrichedMen
 			return 0, fmt.Errorf("mention %q aspects: %w", em.Mention.ID, err)
 		}
 
-		if _, err := tx.Exec(ctx, `
+		// The clear above frees the synthetic ids, so the only row that can
+		// still lose here is one whose text a scraped mention already carries.
+		batch.Queue(`
 			INSERT INTO mentions (
 				id, brand_id, source, external_id, author, author_followers,
 				text, lang, posted_at, engagement, matched_keyword, content_hash, raw
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-			ON CONFLICT DO NOTHING`,
+			ON CONFLICT (brand_id, content_hash) DO NOTHING`,
 			em.Mention.ID, em.Mention.BrandID, em.Mention.Source, em.Mention.ExternalID,
 			em.Mention.Author, em.Mention.AuthorFollowers, em.Mention.Text, em.Mention.Lang,
 			em.Mention.PostedAt, engagement, em.Mention.MatchedKeyword, em.Mention.ContentHash, raw,
-		); err != nil {
-			return 0, fmt.Errorf("inserting mention %q: %w", em.Mention.ID, err)
-		}
+		)
 
 		// WHERE EXISTS, not a bare insert: if the mention lost to the
 		// content_hash constraint its id is not in mentions and the foreign key
 		// would fail the whole transaction.
-		if _, err := tx.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO mention_enrichment (
 				mention_id, sentiment, sentiment_label, emotion, intent,
 				aspects, is_about_brand, model
 			)
 			SELECT $1,$2,$3,$4,$5,$6,$7,$8
-			WHERE EXISTS (SELECT 1 FROM mentions WHERE id = $1)
-			ON CONFLICT DO NOTHING`,
+			WHERE EXISTS (SELECT 1 FROM mentions WHERE id = $1)`,
 			em.Enrichment.MentionID, em.Enrichment.Sentiment, em.Enrichment.SentimentLabel,
 			em.Enrichment.Emotion, em.Enrichment.Intent, aspects,
 			em.Enrichment.IsAboutBrand, em.Enrichment.Model,
-		); err != nil {
+		)
+	}
+
+	results := tx.SendBatch(ctx, batch)
+	inserted := 0
+	for _, em := range corpus {
+		tag, err := results.Exec()
+		if err != nil {
+			results.Close()
+			return 0, fmt.Errorf("inserting mention %q: %w", em.Mention.ID, err)
+		}
+		inserted += int(tag.RowsAffected())
+
+		if _, err := results.Exec(); err != nil {
+			results.Close()
 			return 0, fmt.Errorf("inserting enrichment for %q: %w", em.Mention.ID, err)
 		}
+	}
+	if err := results.Close(); err != nil {
+		return 0, fmt.Errorf("closing the injection batch: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("committing the injection: %w", err)
 	}
-	return len(corpus), nil
+	return inserted, nil
+}
+
+// execer is the one method cleanup needs, so -cleanup can run it on the pool
+// and insert can run the same statement inside its transaction.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 // cleanup deletes by the synthetic marker and nothing else, so a scraped
 // mention can never be removed by a demo command. The enrichment goes with it
 // through ON DELETE CASCADE.
-func cleanup(ctx context.Context, pool *pgxpool.Pool, brandID string) (int64, error) {
-	tag, err := pool.Exec(ctx, `
+func cleanup(ctx context.Context, db execer, brandID string) (int64, error) {
+	tag, err := db.Exec(ctx, `
 		DELETE FROM mentions
 		WHERE brand_id = $1 AND raw ->> $2 = 'true'`,
 		brandID, crisis.SyntheticKey)

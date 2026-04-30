@@ -14,20 +14,23 @@ Agent internals. Everything here goes through the orchestrator or the database.
 
 | Path | What it does |
 |---|---|
-| `brand.json` | The demo brand, its two competitors, ASINs, app ids. Ten sources, so the fan-out cap of 8 fires on cue. |
+| `brand.json` | The demo brand, its two competitors, ASINs, app ids. Ten sources, more than the orchestrator's fan-out cap, so the cap fires on cue. |
 | `cmd/seed` | Loads `brand.json` and `fixtures/` into Postgres. `-reset` deletes the demo brand. |
 | `cmd/replay` | Shifts fixture timestamps so the corpus ends "now". |
-| `cmd/injectcrisis` | Drops 40 synthetic negative mentions to fire the crisis rule. |
-| `crisis/` | The synthetic corpus itself, importable. Not a command. |
+| `cmd/injectcrisis` | Clears its last injection, then drops the synthetic negative surge in. |
+| `crisis/` | The synthetic corpus itself, importable. Rows only, not a command. |
 | `cmd/recordfixtures` | The one live Anakin recording session. B2 only. |
 | `run_demo.sh` | The full flow. `--reset` reseeds, `--live` adds the live call. |
 
 Each command is its own `package main` under `demo/cmd/` and runs as
 `go run ./demo/cmd/seed`. Four `func main` in one package does not compile.
 
-`crisis/` is a library, not a command, because `bp-detector` is `package main`
-and cannot be imported: the detector's own test imports this corpus instead,
-which is how the injection is proved against the real rules.
+`crisis/` is a library, not a command, so the detector's own test can import the
+corpus and prove the injection against the real rules. Turning it around, by
+splitting the detector's rules into an importable package, would put `demo/`
+inside an agent's internals in the production graph instead of in one test file.
+Claims about the corpus are tested in `crisis/`; only the two that need the
+detector's unexported thresholds live under `agents/`.
 
 ## Invariants and gotchas
 
@@ -47,6 +50,8 @@ which is how the injection is proved against the real rules.
 - **The injection must fire the real detector rule.** If it does not, the
   injection is wrong. Never special-case the detector to make the demo work.
 - **`run_demo.sh` is re-runnable.** It will be run thirty times before the pitch.
+  Every step has to be re-runnable on its own for that to hold, which is why an
+  injection clears its own last one instead of colliding with it.
 - **The live Anakin call is optional and separate.** Stage wifi must not be able
   to break the demo.
 

@@ -1,10 +1,12 @@
 // The demo injection has to fire the real rules.
 //
-// This test lives here, not under demo/, because bp-detector is `package main`
-// and nothing can import it. Running the corpus through the handler is the only
-// way to prove the claim without special-casing the detector, and
-// special-casing the detector to make a demo work would make every alert on
-// stage worthless.
+// These two tests live here, not under demo/, because they are the only ones
+// that need what only this package can see: the unexported thresholds and the
+// handler itself. Every claim about the corpus that does not need a threshold
+// is tested beside the corpus, in demo/crisis.
+//
+// Special-casing the detector to make a demo work would make every alert on
+// stage worthless, so the demo is proved against the rules instead.
 //
 // It needs no database and no network.
 
@@ -12,7 +14,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -24,11 +25,36 @@ import (
 // depend on them are the same on every run.
 var injectionNow = time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC)
 
+// assumedBaseline is what the demo assumes the seeded corpus looks like: a few
+// mentions an hour per source, mostly not negative. It is the detector's half
+// of the claim, which is why it is here and not in demo/crisis: forty mentions
+// in ten minutes is only a crisis relative to a brand that normally sees four
+// an hour.
+//
+// On stage the real baseline comes from stats.ComputeBaseline over the seeded
+// corpus. That it matches these numbers is not checked anywhere yet, because
+// ComputeBaseline is still B1's stub.
+func assumedBaseline() models.BaselineStats {
+	mean := map[models.Source]float64{}
+	std := map[models.Source]float64{}
+	for _, source := range crisis.Sources {
+		mean[source] = 4.0
+		std[source] = 2.0
+	}
+	return models.BaselineStats{
+		PerSourceHourlyMean: mean,
+		PerSourceHourlyStd:  std,
+		NegativeShareMean:   0.18,
+		NegativeShareStd:    0.07,
+		Days:                14,
+	}
+}
+
 func injectionInput() models.DetectInput {
 	return models.DetectInput{
 		BrandID:  "brd_demo",
 		Enriched: crisis.Mentions("brd_demo", injectionNow),
-		Baseline: crisis.Baseline(),
+		Baseline: assumedBaseline(),
 		Now:      injectionNow,
 	}
 }
@@ -49,7 +75,7 @@ func TestTheInjectedCrisisFiresTheRealCrisisRule(t *testing.T) {
 		}
 	}
 	if len(fired) == 0 {
-		t.Fatalf("no crisis alert fired; the injection is wrong, not the rule. alerts: %+v", set.Alerts)
+		t.Fatalf("no crisis alert fired; the injection is wrong, not the rule. alerts: %v", whys(set.Alerts))
 	}
 
 	// One per source, since DedupeKey is kind:source:hour.
@@ -62,16 +88,24 @@ func TestTheInjectedCrisisFiresTheRealCrisisRule(t *testing.T) {
 			t.Errorf("crisis on %s is %q, want critical: the whole corpus is negative",
 				alert.DedupeKey, alert.Severity)
 		}
+		// The z-score, the negative share and the count: the three numbers the
+		// rule fired on, which is what an alert has to carry instead of a
+		// sentence.
 		if len(alert.Evidence) != 3 {
-			t.Errorf("crisis on %s carries %d pieces of evidence, want the z-score, the negative share and the count",
-				alert.DedupeKey, len(alert.Evidence))
+			t.Errorf("crisis on %s carries %v, want the z-score, the negative share and the count",
+				alert.DedupeKey, metrics(alert))
 		}
-		for _, e := range alert.Evidence {
-			if e.Metric == "" || e.Window == "" {
-				t.Errorf("crisis on %s has an unlabelled evidence entry: %+v", alert.DedupeKey, e)
+		for _, metric := range []string{"volume_zscore", "negative_share", "mention_count"} {
+			e := evidence(t, alert, metric)
+			if e.Window == "" {
+				t.Errorf("crisis on %s reports %s over an unlabelled window: %+v", alert.DedupeKey, metric, e)
 			}
 		}
 	}
+
+	// The artifact the PR carries. It asserts nothing the block above does not
+	// already cover; read it with -v.
+	t.Logf("the demo's alert set on the wire:\n%s", alertJSON(t, set))
 }
 
 func TestTheInjectedCrisisAlsoFiresInfluencerMention(t *testing.T) {
@@ -90,109 +124,29 @@ func TestTheInjectedCrisisAlsoFiresInfluencerMention(t *testing.T) {
 			t.Errorf("influencer alert on %s is %q, want high: the influencers are negative",
 				alert.DedupeKey, alert.Severity)
 		}
-		if alert.Evidence[0].Value < alert.Evidence[0].Threshold {
-			t.Errorf("influencer alert reports %v followers against a threshold of %v",
-				alert.Evidence[0].Value, alert.Evidence[0].Threshold)
+		followers := evidence(t, alert, "author_followers")
+		if followers.Value < followers.Threshold {
+			t.Errorf("influencer alert on %s reports %v followers against a threshold of %v",
+				alert.DedupeKey, followers.Value, followers.Threshold)
 		}
 	}
 	if influencer == 0 {
-		t.Errorf("no influencer_mention alert fired, so the three high-follower authors did nothing: %+v", set.Alerts)
+		t.Errorf("no influencer_mention alert fired, so the high-follower authors did nothing: %v", whys(set.Alerts))
 	}
 }
 
-// Every mention has to survive the insert. Lang has no default in Go and
-// Validate rejects an empty one, which is exactly the trap this data would
-// otherwise fall into.
-func TestEveryInjectedMentionIsValidAndMarkedSynthetic(t *testing.T) {
-	corpus := crisis.Mentions("brd_demo", injectionNow)
-
-	if len(corpus) != crisis.Count {
-		t.Fatalf("corpus holds %d mentions, want %d", len(corpus), crisis.Count)
-	}
-
-	seenHash := map[string]bool{}
-	influencers := 0
-	for _, em := range corpus {
-		if err := em.Mention.Validate(); err != nil {
-			t.Errorf("mention %q: %v", em.Mention.ID, err)
-		}
-		if em.Mention.Lang == "" {
-			t.Errorf("mention %q has no lang", em.Mention.ID)
-		}
-		if !crisis.IsSynthetic(em.Mention) {
-			t.Errorf("mention %q is not marked synthetic", em.Mention.ID)
-		}
-		if seenHash[em.Mention.ContentHash] {
-			t.Errorf("mention %q repeats a content_hash, so UNIQUE (brand_id, content_hash) would drop it",
-				em.Mention.ID)
-		}
-		seenHash[em.Mention.ContentHash] = true
-
-		if em.Mention.AuthorFollowers >= 50000 {
-			influencers++
-		}
-		if em.Enrichment.SentimentLabel != models.SentimentNegative {
-			t.Errorf("mention %q is not negative, so it does not belong in a crisis corpus", em.Mention.ID)
+// This is the one place that can see both sides of the coupling: the corpus's
+// follower count and the threshold it has to clear. Neither file restates the
+// other's number, so tuning the rule fails here rather than on stage.
+func TestTheInjectedInfluencersClearTheRealThreshold(t *testing.T) {
+	above := 0
+	for _, em := range crisis.Mentions("brd_demo", injectionNow) {
+		if float64(em.Mention.AuthorFollowers) >= influencerFollowers {
+			above++
 		}
 	}
-	if influencers != crisis.Influencers {
-		t.Errorf("%d high-follower authors, want %d", influencers, crisis.Influencers)
+	if above != crisis.Influencers {
+		t.Errorf("%d injected authors clear the %v follower threshold, the corpus promises %d",
+			above, influencerFollowers, crisis.Influencers)
 	}
-}
-
-// The surge must not straddle an hour boundary: the rules bucket by hour and
-// two half-sized groups may clear neither threshold.
-func TestTheSurgeStaysInsideOneHourBucket(t *testing.T) {
-	for _, at := range []time.Time{
-		time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC), // mid hour
-		time.Date(2026, 9, 20, 14, 3, 0, 0, time.UTC),  // three minutes past
-		time.Date(2026, 9, 20, 14, 0, 30, 0, time.UTC), // thirty seconds past
-	} {
-		t.Run(at.Format("15:04:05"), func(t *testing.T) {
-			hour := at.Truncate(time.Hour)
-			for _, em := range crisis.Mentions("brd_demo", at) {
-				if em.Mention.PostedAt.Before(hour) || em.Mention.PostedAt.After(at) {
-					t.Fatalf("mention %q posted at %s, outside the hour from %s to %s",
-						em.Mention.ID, em.Mention.PostedAt.Format(time.RFC3339), hour.Format(time.RFC3339), at.Format(time.RFC3339))
-				}
-			}
-		})
-	}
-}
-
-// Same input, same corpus, every time. A demo that differs between runs cannot
-// be rehearsed.
-func TestTheInjectionIsDeterministic(t *testing.T) {
-	first := crisis.Mentions("brd_demo", injectionNow)
-	for i := 0; i < 5; i++ {
-		again := crisis.Mentions("brd_demo", injectionNow)
-		for j := range first {
-			if again[j].Mention.ID != first[j].Mention.ID ||
-				!again[j].Mention.PostedAt.Equal(first[j].Mention.PostedAt) ||
-				again[j].Mention.ContentHash != first[j].Mention.ContentHash {
-				t.Fatalf("run %d position %d differs: %+v vs %+v", i, j, again[j].Mention, first[j].Mention)
-			}
-		}
-	}
-}
-
-// TestPrintTheCrisisAlertJSON exists to produce the artifact the PR asks for.
-// It asserts nothing the tests above do not already cover; run it with -v.
-func TestPrintTheCrisisAlertJSON(t *testing.T) {
-	set, err := DetectorHandler{}.Handle(context.Background(), injectionInput())
-	if err != nil {
-		t.Fatalf("Handle: %v", err)
-	}
-	for _, alert := range set.Alerts {
-		if alert.Kind != models.AlertCrisis {
-			continue
-		}
-		out, err := json.MarshalIndent(alert, "", "  ")
-		if err != nil {
-			t.Fatalf("marshalling the alert: %v", err)
-		}
-		t.Logf("crisis alert:\n%s", out)
-		return
-	}
-	t.Fatal("no crisis alert to print")
 }

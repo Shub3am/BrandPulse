@@ -37,8 +37,7 @@ step() {
   printf '\n\033[1m[%d/%d] %s\033[0m\n' "$STEP" "$TOTAL_STEPS" "$1"
 }
 
-TOTAL_STEPS=8
-if [ "$LIVE" -eq 1 ]; then TOTAL_STEPS=9; fi
+TOTAL_STEPS=$((8 + LIVE))
 
 # psql runs inside the container so the demo needs no client on the host.
 psql_demo() {
@@ -88,6 +87,8 @@ step "Running the pipeline over the last 24 hours"
 orchestrate scheduled true
 
 step "Injecting the crisis"
+# It clears its own last injection first, so the thirtieth rehearsal gets a
+# surge in the current hour rather than last hour's rows left where they lie.
 go run ./demo/cmd/injectcrisis -brand "$BRAND_ID"
 
 step "Re-running the pipeline so the detector sees the surge"

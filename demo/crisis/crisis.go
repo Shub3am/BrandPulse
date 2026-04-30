@@ -1,10 +1,13 @@
-// Package crisis builds the synthetic negative surge the demo injects.
+// Package crisis builds the synthetic negative surge the demo injects. It is
+// the rows and nothing else: no baseline, no thresholds, no database.
 //
 // It exists as an importable package rather than living inside
-// demo/cmd/injectcrisis because bp-detector is `package main` and nothing can
-// import it. Turning the relationship around means the detector's own test can
-// import this corpus and prove the real rules fire on it, which is the one
-// thing that makes the injection honest.
+// demo/cmd/injectcrisis so that bp-detector's own test can import this corpus
+// and prove the real rules fire on it, which is the one thing that makes the
+// injection honest. The alternative, splitting the detector's rules into an
+// importable package so the dependency ran the other way, is the worse breach:
+// it would turn the thresholds into repo-wide API and put demo/ inside an
+// agent's internals in the production graph rather than in one test file.
 //
 // This package must never be imported by a non-test file under agents/. It
 // writes nothing, reads nothing and has no clock of its own: every mention is
@@ -34,9 +37,11 @@ const (
 	// crisis.
 	Influencers = 3
 
-	// influencerFollowers is comfortably over bp-detector's threshold of
-	// 50000. It is not exactly 50000: a demo that depends on a boundary
-	// comparison is a demo that breaks when the boundary is tuned.
+	// influencerFollowers is comfortably over bp-detector's threshold, rather
+	// than sitting on it: a demo that depends on a boundary comparison is a
+	// demo that breaks when the boundary is tuned. The number this has to
+	// clear is not restated here, it is asserted against the real constant in
+	// agents/bp-detector/injection_test.go.
 	influencerFollowers = 128_400
 
 	// SyntheticKey marks every injected mention. The dashboard reads it to show
@@ -98,10 +103,11 @@ func Mentions(brandID string, now time.Time) []models.EnrichedMention {
 		text := complaints[i%len(complaints)]
 		postedAt := start.Add(time.Duration(i) * step)
 
-		// The id is derived from the index rather than from ids.New, so two
-		// injections of the same demo collide on the primary key instead of
-		// stacking forty more rows on every rehearsal.
-		id := fmt.Sprintf("mn_synthetic_%02d", i)
+		// The id is derived from the index and the brand rather than from
+		// ids.New, because ids.New carries a clock and this corpus has to be
+		// identical on every rehearsal. The brand is in it so injecting into
+		// two brands does not collide on the primary key.
+		id := fmt.Sprintf("mnt_%s_synthetic_%02d", brandID, i)
 
 		mention := models.Mention{
 			ID:         id,
@@ -141,30 +147,10 @@ func Mentions(brandID string, now time.Time) []models.EnrichedMention {
 	return out
 }
 
-// Baseline is a fourteen-day baseline for a brand of the demo's size: a few
-// mentions an hour per source, mostly not negative.
-//
-// It is here, beside the corpus, because the two are one claim: forty mentions
-// in ten minutes is only a crisis relative to a brand that normally sees four
-// an hour. The detector's test uses exactly this.
-func Baseline() models.BaselineStats {
-	mean := map[models.Source]float64{}
-	std := map[models.Source]float64{}
-	for _, source := range Sources {
-		mean[source] = 4.0
-		std[source] = 2.0
-	}
-	return models.BaselineStats{
-		PerSourceHourlyMean: mean,
-		PerSourceHourlyStd:  std,
-		NegativeShareMean:   0.18,
-		NegativeShareStd:    0.07,
-		Days:                14,
-	}
-}
-
-// IsSynthetic reports whether a mention came from this package. The dashboard
-// badge and the -cleanup flag both depend on this being the only answer.
+// IsSynthetic reports whether a mention came from this package, for a caller
+// holding a models.Mention. The two callers that hold rows instead of structs,
+// -cleanup and replay's corpus query, ask Postgres the same question as
+// `raw ->> SyntheticKey`.
 func IsSynthetic(mention models.Mention) bool {
 	marked, ok := mention.Raw[SyntheticKey].(bool)
 	return ok && marked

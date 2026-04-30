@@ -1,48 +1,19 @@
+// What the corpus is made of is tested in demo/crisis, beside it. What is
+// tested here is this command: that its dry run is safe and that its real path
+// refuses to pretend without a database.
+
 package main
 
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"brandpulse/demo/crisis"
 	"brandpulse/internal/models"
 )
-
-// The rules bucket by source and hour, so the shape that matters is how many
-// mentions landed on each source inside one hour. That is asserted here; that
-// those numbers actually fire the rule is asserted in
-// agents/bp-detector/injection_test.go, against the real thresholds.
-func TestTheSurgeIsSpreadOverThreeSources(t *testing.T) {
-	corpus := crisis.Mentions("brd_demo", time.Now().UTC())
-
-	perSource := map[models.Source]int{}
-	for _, em := range corpus {
-		perSource[em.Mention.Source]++
-	}
-
-	if len(perSource) != 3 {
-		t.Fatalf("the surge landed on %d sources, want 3: %v", len(perSource), perSource)
-	}
-	for _, source := range crisis.Sources {
-		if perSource[source] < 13 {
-			t.Errorf("%s got %d mentions, too few to look like a surge", source, perSource[source])
-		}
-	}
-}
-
-func TestEveryMentionBelongsToTheBrandItWasInjectedFor(t *testing.T) {
-	for _, em := range crisis.Mentions("brd_other", time.Now().UTC()) {
-		if em.Mention.BrandID != "brd_other" {
-			t.Fatalf("mention %q carries brand %q", em.Mention.ID, em.Mention.BrandID)
-		}
-		if em.Enrichment.MentionID != em.Mention.ID {
-			t.Fatalf("enrichment points at %q, mention is %q", em.Enrichment.MentionID, em.Mention.ID)
-		}
-	}
-}
 
 // CI runs this path. It must not need DATABASE_URL, a container or a network.
 func TestDryRunWritesTheShapeAndTouchesNothing(t *testing.T) {
@@ -58,7 +29,8 @@ func TestDryRunWritesTheShapeAndTouchesNothing(t *testing.T) {
 		"dry run",
 		"nothing written",
 		"brd_demo",
-		"40 synthetic mentions",
+		fmt.Sprintf("%d synthetic mentions", crisis.Count),
+		fmt.Sprintf("influencers: %d", crisis.Influencers),
 		string(models.SourceX),
 		string(models.SourceReddit),
 		string(models.SourceInstagram),
