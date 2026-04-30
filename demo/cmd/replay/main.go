@@ -10,8 +10,8 @@
 // between runs cannot be rehearsed, and this will be run thirty times before
 // the pitch.
 //
-// It never moves an injected mention. Those carry their own timestamps from
-// demo/crisis and are already "now" by construction.
+// It never moves an injected mention, and never measures the corpus end from
+// one. Those are anchored to the current hour by demo/crisis.
 package main
 
 import (
@@ -91,9 +91,8 @@ func shift(postedAt, corpusEnd, now time.Time) time.Time {
 	return postedAt.Add(now.Sub(corpusEnd)).UTC()
 }
 
-// latest is the corpus end. It reads the rows in the order the query returned
-// them, which is ordered by posted_at, but it scans rather than taking the last
-// element so a change to that ORDER BY cannot silently break the offset.
+// latest is the corpus end. It scans rather than relying on the query's order,
+// which is why that query has no ORDER BY to keep in step with it.
 func latest(corpus []corpusRow) time.Time {
 	end := corpus[0].postedAt
 	for _, row := range corpus[1:] {
@@ -105,11 +104,13 @@ func latest(corpus []corpusRow) time.Time {
 }
 
 func loadCorpus(ctx context.Context, pool *pgxpool.Pool, brandID string) ([]corpusRow, error) {
+	// Injected mentions are excluded because they are anchored to the current
+	// hour: counting one as the corpus end would make the offset zero and the
+	// seeded corpus would silently never move.
 	rows, err := pool.Query(ctx, `
 		SELECT id, posted_at
 		FROM mentions
-		WHERE brand_id = $1 AND raw ->> $2 IS DISTINCT FROM 'true'
-		ORDER BY posted_at, id`,
+		WHERE brand_id = $1 AND raw ->> $2 IS DISTINCT FROM 'true'`,
 		brandID, crisis.SyntheticKey)
 	if err != nil {
 		return nil, fmt.Errorf("reading the corpus: %w", err)

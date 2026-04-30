@@ -61,6 +61,14 @@ func run(ctx context.Context, brandFile, fixtureFile string, reset bool, out io.
 		return err
 	}
 
+	// Both files are read before the first write. A corpus that does not parse
+	// should fail before -reset has deleted the brand, not after.
+	mentions, err := loadMentions(fixtureFile, brand.Brand.ID)
+	noCorpusYet := errors.Is(err, fs.ErrNotExist)
+	if err != nil && !noCorpusYet {
+		return err
+	}
+
 	pool, err := db.Pool(ctx)
 	if err != nil {
 		return err
@@ -77,17 +85,13 @@ func run(ctx context.Context, brandFile, fixtureFile string, reset bool, out io.
 	if err := seedBrand(ctx, pool, brand); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "brand %s seeded with %d sources, fan-out cap is 8\n",
+	fmt.Fprintf(out, "brand %s seeded with %d sources, more than the orchestrator's fan-out cap\n",
 		brand.Brand.ID, len(brand.Profile.Sources))
 
-	mentions, err := loadMentions(fixtureFile, brand.Brand.ID)
-	if errors.Is(err, fs.ErrNotExist) {
+	if noCorpusYet {
 		fmt.Fprintf(out, "no corpus at %s, seeded the brand only. "+
 			"The fixture recording is B2's and has not landed yet.\n", fixtureFile)
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 
 	inserted, err := insertMentions(ctx, pool, mentions)

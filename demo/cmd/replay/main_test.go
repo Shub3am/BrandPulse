@@ -53,14 +53,14 @@ func TestNothingIsShiftedPastNow(t *testing.T) {
 }
 
 // Same inputs, same output, every run. This is the property the whole rehearsal
-// rests on.
+// rests on, so it is pinned against a written-out timestamp: a shift that
+// reached for a clock or a random number could not land on this one twice.
 func TestTheShiftIsDeterministic(t *testing.T) {
 	posted := corpusEnd.Add(-73 * time.Hour)
-	first := shift(posted, corpusEnd, replayNow)
-	for i := 0; i < 100; i++ {
-		if again := shift(posted, corpusEnd, replayNow); !again.Equal(first) {
-			t.Fatalf("run %d gave %s, the first run gave %s", i, again, first)
-		}
+	want := time.Date(2026, 9, 17, 13, 30, 0, 0, time.UTC)
+
+	if got := shift(posted, corpusEnd, replayNow); !got.Equal(want) {
+		t.Errorf("a mention posted %s landed at %s, want %s", posted, got, want)
 	}
 }
 
