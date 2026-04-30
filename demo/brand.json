@@ -1,0 +1,60 @@
+{
+  "brand": {
+    "id": "brd_demo",
+    "name": "Suncoast",
+    "website": "https://suncoast.example.in",
+    "plan": "growth",
+    "whatsapp_number": "+919999900001",
+    "daily_credit_budget": 150
+  },
+  "profile": {
+    "brand_id": "brd_demo",
+    "name": "Suncoast",
+    "website": "https://suncoast.example.in",
+    "keywords": [
+      "suncoast",
+      "suncoast sunscreen",
+      "suncoast spf 50",
+      "suncoast aqua gel"
+    ],
+    "hashtags": ["#suncoast", "#suncoastskin"],
+    "products": [
+      "Suncoast SPF 50 Aqua Gel",
+      "Suncoast Mineral Stick",
+      "Suncoast After Sun Serum"
+    ],
+    "competitors": ["Dot & Key", "Minimalist"],
+    "sources": [
+      "x",
+      "reddit",
+      "youtube",
+      "news",
+      "playstore",
+      "appstore",
+      "amazon",
+      "flipkart",
+      "instagram",
+      "web"
+    ],
+    "negative_keywords": ["sun coast realty", "suncoast credit union"],
+    "source_handles": {
+      "amazon": "B0CDEMO123",
+      "flipkart": "MOBGDEMO456",
+      "playstore": "in.suncoast.app",
+      "appstore": "1600000001",
+      "x": "suncoastskin",
+      "instagram": "suncoastskin"
+    },
+    "voice": {
+      "tone": "warm, direct, no corporate filler",
+      "language": "English with light Hinglish if the mention is Hinglish",
+      "signature": "- Team Suncoast",
+      "do_not_say": [
+        "we guarantee",
+        "this has never happened before",
+        "as per our policy"
+      ]
+    },
+    "version": 1
+  }
+}
