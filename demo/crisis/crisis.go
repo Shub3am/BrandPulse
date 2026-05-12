@@ -146,12 +146,3 @@ func Mentions(brandID string, now time.Time) []models.EnrichedMention {
 	}
 	return out
 }
-
-// IsSynthetic reports whether a mention came from this package, for a caller
-// holding a models.Mention. The two callers that hold rows instead of structs,
-// -cleanup and replay's corpus query, ask Postgres the same question as
-// `raw ->> SyntheticKey`.
-func IsSynthetic(mention models.Mention) bool {
-	marked, ok := mention.Raw[SyntheticKey].(bool)
-	return ok && marked
-}

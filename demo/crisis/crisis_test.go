@@ -36,8 +36,9 @@ func TestEveryInjectedMentionIsValidAndMarkedSynthetic(t *testing.T) {
 		if em.Mention.Lang == "" {
 			t.Errorf("mention %q has no lang", em.Mention.ID)
 		}
-		if !IsSynthetic(em.Mention) {
-			t.Errorf("mention %q is not marked synthetic", em.Mention.ID)
+		if marked, _ := em.Mention.Raw[SyntheticKey].(bool); !marked {
+			t.Errorf("mention %q is not marked synthetic, so -cleanup would not find it "+
+				"and the dashboard would show it as scraped", em.Mention.ID)
 		}
 		if seenHash[em.Mention.ContentHash] {
 			t.Errorf("mention %q repeats a content_hash, so UNIQUE (brand_id, content_hash) would drop it",
@@ -45,7 +46,9 @@ func TestEveryInjectedMentionIsValidAndMarkedSynthetic(t *testing.T) {
 		}
 		seenHash[em.Mention.ContentHash] = true
 
-		if em.Mention.AuthorFollowers > 0 {
+		// Against influencerFollowers, not against zero: this is an in-package
+		// test, so it can hold the corpus to the number it actually promises.
+		if em.Mention.AuthorFollowers >= influencerFollowers {
 			influencers++
 		}
 		if em.Enrichment.SentimentLabel != models.SentimentNegative {
@@ -53,7 +56,7 @@ func TestEveryInjectedMentionIsValidAndMarkedSynthetic(t *testing.T) {
 		}
 	}
 	if influencers != Influencers {
-		t.Errorf("%d authors carry a follower count, want %d", influencers, Influencers)
+		t.Errorf("%d authors clear %d followers, want %d", influencers, influencerFollowers, Influencers)
 	}
 }
 
@@ -83,7 +86,7 @@ func TestTheSurgeIsSpreadOverEverySource(t *testing.T) {
 // two half-sized groups may clear neither threshold.
 func TestTheSurgeStaysInsideOneHourBucket(t *testing.T) {
 	for _, at := range []time.Time{
-		time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC), // mid hour
+		corpusNow, // mid hour, with room for the full Spread
 		time.Date(2026, 9, 20, 14, 3, 0, 0, time.UTC),  // three minutes past
 		time.Date(2026, 9, 20, 14, 0, 30, 0, time.UTC), // thirty seconds past
 	} {

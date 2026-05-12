@@ -1,9 +1,9 @@
 // The demo injection has to fire the real rules.
 //
-// These two tests live here, not under demo/, because they are the only ones
-// that need what only this package can see: the unexported thresholds and the
-// handler itself. Every claim about the corpus that does not need a threshold
-// is tested beside the corpus, in demo/crisis.
+// What lives here, rather than under demo/, is every claim that couples the
+// corpus to the rules, because only this package can see the unexported
+// thresholds and the handler. A claim about the corpus alone is tested beside
+// the corpus, in demo/crisis.
 //
 // Special-casing the detector to make a demo work would make every alert on
 // stage worthless, so the demo is proved against the rules instead.
@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -35,19 +36,10 @@ var injectionNow = time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC)
 // corpus. That it matches these numbers is not checked anywhere yet, because
 // ComputeBaseline is still B1's stub.
 func assumedBaseline() models.BaselineStats {
-	mean := map[models.Source]float64{}
-	std := map[models.Source]float64{}
-	for _, source := range crisis.Sources {
-		mean[source] = 4.0
-		std[source] = 2.0
-	}
-	return models.BaselineStats{
-		PerSourceHourlyMean: mean,
-		PerSourceHourlyStd:  std,
-		NegativeShareMean:   0.18,
-		NegativeShareStd:    0.07,
-		Days:                14,
-	}
+	stats := baseline(crisis.Sources[0], 4.0, 2.0, crisis.Sources[1:]...)
+	stats.NegativeShareMean = 0.18
+	stats.NegativeShareStd = 0.07
+	return stats
 }
 
 func injectionInput() models.DetectInput {
@@ -88,14 +80,12 @@ func TestTheInjectedCrisisFiresTheRealCrisisRule(t *testing.T) {
 			t.Errorf("crisis on %s is %q, want critical: the whole corpus is negative",
 				alert.DedupeKey, alert.Severity)
 		}
-		// The z-score, the negative share and the count: the three numbers the
-		// rule fired on, which is what an alert has to carry instead of a
-		// sentence.
-		if len(alert.Evidence) != 3 {
-			t.Errorf("crisis on %s carries %v, want the z-score, the negative share and the count",
-				alert.DedupeKey, metrics(alert))
+		// The numbers the rule fired on, which is what an alert has to carry
+		// instead of a sentence.
+		if !slices.Equal(metrics(alert), crisisMetrics) {
+			t.Errorf("crisis on %s carries %v, want %v", alert.DedupeKey, metrics(alert), crisisMetrics)
 		}
-		for _, metric := range []string{"volume_zscore", "negative_share", "mention_count"} {
+		for _, metric := range crisisMetrics {
 			e := evidence(t, alert, metric)
 			if e.Window == "" {
 				t.Errorf("crisis on %s reports %s over an unlabelled window: %+v", alert.DedupeKey, metric, e)

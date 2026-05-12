@@ -87,16 +87,29 @@ func buildMentions(specs []mentionSpec) []models.EnrichedMention {
 	return out
 }
 
-// baseline builds a BaselineStats where one source has the given mean and std.
-// MeanRating stays nil unless a row sets it, because nil is the value that
-// panics an unguarded rule.
-func baseline(source models.Source, mean, std float64) models.BaselineStats {
-	return models.BaselineStats{
-		PerSourceHourlyMean: map[models.Source]float64{source: mean},
-		PerSourceHourlyStd:  map[models.Source]float64{source: std},
+// baseline builds a BaselineStats where the given sources all have the given
+// mean and std. MeanRating stays nil unless a row sets it, because nil is the
+// value that panics an unguarded rule.
+//
+// The extra sources are variadic rather than a slice so the one-source callers,
+// which are most of them, read the same as they always did.
+func baseline(source models.Source, mean, std float64, more ...models.Source) models.BaselineStats {
+	stats := models.BaselineStats{
+		PerSourceHourlyMean: map[models.Source]float64{},
+		PerSourceHourlyStd:  map[models.Source]float64{},
 		Days:                14,
 	}
+	for _, s := range append([]models.Source{source}, more...) {
+		stats.PerSourceHourlyMean[s] = mean
+		stats.PerSourceHourlyStd[s] = std
+	}
+	return stats
 }
+
+// crisisMetrics is what a crisis alert has to carry. The brief's demo line
+// reads "volume z=4.1, negative share 78%", so all three terms are on the
+// alert, not just the one that tipped it.
+var crisisMetrics = []string{"volume_zscore", "negative_share", "mention_count"}
 
 func detectInput(b models.BaselineStats, specs []mentionSpec) models.DetectInput {
 	return models.DetectInput{
@@ -262,10 +275,7 @@ func TestRuleCrisis(t *testing.T) {
 			if got := evidence(t, alerts[0], "negative_share"); got.Value != tc.wantShare {
 				t.Errorf("negative_share value = %v, want %v", got.Value, tc.wantShare)
 			}
-			// The brief's demo line reads "volume z=4.1, negative share 78%",
-			// so all three terms have to be on the alert, not just the one
-			// that tipped it.
-			for _, metric := range []string{"volume_zscore", "negative_share", "mention_count"} {
+			for _, metric := range crisisMetrics {
 				evidence(t, alerts[0], metric)
 			}
 		})

@@ -29,8 +29,9 @@ Each command is its own `package main` under `demo/cmd/` and runs as
 corpus and prove the injection against the real rules. Turning it around, by
 splitting the detector's rules into an importable package, would put `demo/`
 inside an agent's internals in the production graph instead of in one test file.
-Claims about the corpus are tested in `crisis/`; only the two that need the
-detector's unexported thresholds live under `agents/`.
+A claim about the corpus alone is tested in `crisis/`. A claim that couples the
+corpus to the rules needs the detector's unexported thresholds, so it lives in
+`agents/bp-detector/injection_test.go` instead.
 
 ## Invariants and gotchas
 
