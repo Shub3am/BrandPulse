@@ -90,18 +90,15 @@ func buildMentions(specs []mentionSpec) []models.EnrichedMention {
 // baseline builds a BaselineStats where the given sources all have the given
 // mean and std. MeanRating stays nil unless a row sets it, because nil is the
 // value that panics an unguarded rule.
-//
-// The extra sources are variadic rather than a slice so the one-source callers,
-// which are most of them, read the same as they always did.
-func baseline(source models.Source, mean, std float64, more ...models.Source) models.BaselineStats {
+func baseline(mean, std float64, sources ...models.Source) models.BaselineStats {
 	stats := models.BaselineStats{
 		PerSourceHourlyMean: map[models.Source]float64{},
 		PerSourceHourlyStd:  map[models.Source]float64{},
 		Days:                14,
 	}
-	for _, s := range append([]models.Source{source}, more...) {
-		stats.PerSourceHourlyMean[s] = mean
-		stats.PerSourceHourlyStd[s] = std
+	for _, source := range sources {
+		stats.PerSourceHourlyMean[source] = mean
+		stats.PerSourceHourlyStd[source] = std
 	}
 	return stats
 }
@@ -135,7 +132,7 @@ func TestRuleSpike(t *testing.T) {
 	}{
 		{
 			name:         "z exactly 3.0 fires medium",
-			baseline:     baseline(models.SourceX, 10, 2),
+			baseline:     baseline(10, 2, models.SourceX),
 			specs:        repeat(16, mentionSpec{source: models.SourceX}),
 			wantAlerts:   1,
 			wantSeverity: models.SeverityMedium,
@@ -143,7 +140,7 @@ func TestRuleSpike(t *testing.T) {
 		},
 		{
 			name:         "z exactly 5.0 raises it to high",
-			baseline:     baseline(models.SourceX, 10, 2),
+			baseline:     baseline(10, 2, models.SourceX),
 			specs:        repeat(20, mentionSpec{source: models.SourceX}),
 			wantAlerts:   1,
 			wantSeverity: models.SeverityHigh,
@@ -151,7 +148,7 @@ func TestRuleSpike(t *testing.T) {
 		},
 		{
 			name:       "near miss at z 2.9 does not fire",
-			baseline:   baseline(models.SourceX, 10.2, 2),
+			baseline:   baseline(10.2, 2, models.SourceX),
 			specs:      repeat(16, mentionSpec{source: models.SourceX}),
 			wantAlerts: 0,
 		},
@@ -159,29 +156,25 @@ func TestRuleSpike(t *testing.T) {
 			name: "quiet brand with std 0 does not fire",
 			// stats.ZScore returns 0.0 rather than +Inf here. Without that
 			// guard this row is a silent false alert, not a crash.
-			baseline:   baseline(models.SourceReddit, 0, 0),
+			baseline:   baseline(0, 0, models.SourceReddit),
 			specs:      repeat(12, mentionSpec{source: models.SourceReddit}),
 			wantAlerts: 0,
 		},
 		{
 			name:       "the same volume split across two hours does not fire",
-			baseline:   baseline(models.SourceX, 10, 2),
+			baseline:   baseline(10, 2, models.SourceX),
 			specs:      join(repeat(8, mentionSpec{source: models.SourceX}), repeat(8, mentionSpec{source: models.SourceX, hourOffset: 1})),
 			wantAlerts: 0,
 		},
 		{
-			name:     "two sources spiking produce one alert each",
-			baseline: models.BaselineStats{
-				PerSourceHourlyMean: map[models.Source]float64{models.SourceX: 10, models.SourceReddit: 10},
-				PerSourceHourlyStd:  map[models.Source]float64{models.SourceX: 2, models.SourceReddit: 2},
-				Days:                14,
-			},
+			name:       "two sources spiking produce one alert each",
+			baseline:   baseline(10, 2, models.SourceX, models.SourceReddit),
 			wantAlerts: 2,
 			specs:      join(repeat(16, mentionSpec{source: models.SourceX}), repeat(16, mentionSpec{source: models.SourceReddit})),
 		},
 		{
 			name:       "a source absent from the baseline does not fire",
-			baseline:   baseline(models.SourceX, 10, 2),
+			baseline:   baseline(10, 2, models.SourceX),
 			specs:      repeat(16, mentionSpec{source: models.SourceYoutube}),
 			wantAlerts: 0,
 		},
@@ -226,7 +219,7 @@ func TestRuleCrisis(t *testing.T) {
 	}{
 		{
 			name:         "z 4.0 with negative share exactly 0.6 fires high",
-			baseline:     baseline(models.SourceX, 10, 2.5),
+			baseline:     baseline(10, 2.5, models.SourceX),
 			specs:        join(repeat(12, negative), repeat(8, neutral)),
 			wantAlerts:   1,
 			wantSeverity: models.SeverityHigh,
@@ -234,7 +227,7 @@ func TestRuleCrisis(t *testing.T) {
 		},
 		{
 			name:         "negative share 0.8 is critical",
-			baseline:     baseline(models.SourceX, 10, 2.5),
+			baseline:     baseline(10, 2.5, models.SourceX),
 			specs:        join(repeat(16, negative), repeat(4, neutral)),
 			wantAlerts:   1,
 			wantSeverity: models.SeverityCritical,
@@ -242,19 +235,19 @@ func TestRuleCrisis(t *testing.T) {
 		},
 		{
 			name:       "near miss at negative share 0.59 does not fire",
-			baseline:   baseline(models.SourceX, 40, 20),
+			baseline:   baseline(40, 20, models.SourceX),
 			specs:      join(repeat(59, negative), repeat(41, neutral)),
 			wantAlerts: 0,
 		},
 		{
 			name:       "near miss at z 2.9 does not fire however negative the hour is",
-			baseline:   baseline(models.SourceX, 10.2, 2),
+			baseline:   baseline(10.2, 2, models.SourceX),
 			specs:      repeat(16, negative),
 			wantAlerts: 0,
 		},
 		{
 			name:       "a spike of happy customers is not a crisis",
-			baseline:   baseline(models.SourceX, 10, 2.5),
+			baseline:   baseline(10, 2.5, models.SourceX),
 			specs:      join(repeat(2, negative), repeat(18, mentionSpec{source: models.SourceX, label: models.SentimentPositive})),
 			wantAlerts: 0,
 		},
@@ -363,7 +356,7 @@ func TestRuleReviewBomb(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			b := baseline(models.SourceAmazon, 10, 2)
+			b := baseline(10, 2, models.SourceAmazon)
 			b.MeanRating = tc.meanRating
 
 			alerts := ruleReviewBomb(detectInput(b, tc.specs))
@@ -444,7 +437,7 @@ func TestRuleInfluencerMention(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			alerts := ruleInfluencerMention(detectInput(baseline(models.SourceX, 10, 2), tc.specs))
+			alerts := ruleInfluencerMention(detectInput(baseline(10, 2, models.SourceX), tc.specs))
 			if len(alerts) != tc.wantAlerts {
 				t.Fatalf("got %d alerts, want %d: %v", len(alerts), tc.wantAlerts, whys(alerts))
 			}
@@ -480,26 +473,26 @@ func TestRuleCompetitorMove(t *testing.T) {
 	}{
 		{
 			name:       "competitor volume at z 3.0 fires low",
-			baseline:   baseline(models.SourceX, 10, 2),
+			baseline:   baseline(10, 2, models.SourceX),
 			specs:      repeat(16, rival),
 			wantAlerts: 1,
 			wantZ:      3.0,
 		},
 		{
 			name:       "near miss at z 2.9 does not fire",
-			baseline:   baseline(models.SourceX, 10.2, 2),
+			baseline:   baseline(10.2, 2, models.SourceX),
 			specs:      repeat(16, rival),
 			wantAlerts: 0,
 		},
 		{
 			name:       "brand mentions are not competitor volume",
-			baseline:   baseline(models.SourceX, 10, 2),
+			baseline:   baseline(10, 2, models.SourceX),
 			specs:      repeat(16, mentionSpec{source: models.SourceX}),
 			wantAlerts: 0,
 		},
 		{
 			name:       "competitor chatter under the threshold does not fire",
-			baseline:   baseline(models.SourceX, 10, 2),
+			baseline:   baseline(10, 2, models.SourceX),
 			specs:      join(repeat(12, rival), repeat(20, mentionSpec{source: models.SourceX})),
 			wantAlerts: 0,
 		},
@@ -529,7 +522,7 @@ func TestRuleCompetitorMove(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEvaluateAlwaysReportsFiveRules(t *testing.T) {
-	quiet := Evaluate(detectInput(baseline(models.SourceX, 10, 2), nil))
+	quiet := Evaluate(detectInput(baseline(10, 2, models.SourceX), nil))
 
 	if quiet.RulesEvaluated != 5 {
 		t.Errorf("RulesEvaluated = %d, want 5; checking and finding nothing is not the same as not checking", quiet.RulesEvaluated)
@@ -547,7 +540,7 @@ func TestEvaluateAlwaysReportsFiveRules(t *testing.T) {
 func crisisWindow() models.DetectInput {
 	negative := mentionSpec{source: models.SourceX, label: models.SentimentNegative, likes: 5}
 	return detectInput(
-		baseline(models.SourceX, 10, 2.5),
+		baseline(10, 2.5, models.SourceX),
 		join(
 			repeat(14, negative),
 			repeat(3, mentionSpec{source: models.SourceX, label: models.SentimentNegative, followers: 90000, likes: 400}),
@@ -653,7 +646,7 @@ func TestDedupeKeysAreStableAcrossRuns(t *testing.T) {
 // TestDedupeKeyIsPerHourNotPerRun pins the other half: the same rule firing in
 // two different hours must produce two keys.
 func TestDedupeKeyIsPerHourNotPerRun(t *testing.T) {
-	in := detectInput(baseline(models.SourceX, 10, 2), join(
+	in := detectInput(baseline(10, 2, models.SourceX), join(
 		repeat(16, mentionSpec{source: models.SourceX}),
 		repeat(16, mentionSpec{source: models.SourceX, hourOffset: 3}),
 	))
@@ -675,11 +668,7 @@ func TestDedupeKeyIsPerHourNotPerRun(t *testing.T) {
 // crisis slide cannot be rehearsed.
 func TestAlertOrderIsDeterministic(t *testing.T) {
 	in := detectInput(
-		models.BaselineStats{
-			PerSourceHourlyMean: map[models.Source]float64{models.SourceX: 10, models.SourceReddit: 10, models.SourceYoutube: 10},
-			PerSourceHourlyStd:  map[models.Source]float64{models.SourceX: 2, models.SourceReddit: 2, models.SourceYoutube: 2},
-			Days:                14,
-		},
+		baseline(10, 2, models.SourceX, models.SourceReddit, models.SourceYoutube),
 		join(
 			repeat(16, mentionSpec{source: models.SourceYoutube}),
 			repeat(16, mentionSpec{source: models.SourceX}),

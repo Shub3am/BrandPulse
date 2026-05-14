@@ -94,10 +94,11 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 	for _, source := range crisis.Sources {
 		fmt.Fprintf(out, "  %-10s %d mentions\n", source, perSource[source])
 	}
-	// Counted, not restated from crisis.Influencers: a dry run is here to show
-	// what is about to be written. Whether that count clears the detector's
-	// threshold is asserted in agents/bp-detector/injection_test.go.
-	fmt.Fprintf(out, "influencers: %d authors carry a follower count\n", withFollowers)
+	// "followers", not "influencers": this command cannot see the detector's
+	// threshold, so it reports what it counted and does not claim the count
+	// clears anything. That claim is asserted against the real constant in
+	// agents/bp-detector/injection_test.go.
+	fmt.Fprintf(out, "followers: %d of %d authors carry a follower count\n", withFollowers, len(corpus))
 	fmt.Fprintf(out, "marker: every row carries raw.%s = true\n", crisis.SyntheticKey)
 }
 
@@ -107,8 +108,8 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 // It clears first because the demo is rehearsed: the corpus is anchored to the
 // current hour, so leaving yesterday's rows in place would leave the surge in
 // an hour bucket the detector no longer looks at while the command reported a
-// successful injection. The count returned is the mentions Postgres actually
-// wrote, so a repeat that changed nothing cannot report forty.
+// successful injection. Every insert is unconditional, so the transaction
+// writes the whole corpus or it writes none of it.
 func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, corpus []models.EnrichedMention) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -163,16 +164,14 @@ func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, c
 		)
 	}
 
+	// The batch is drained one mention at a time rather than in a single
+	// Close, so a failure names the row that caused it.
 	results := tx.SendBatch(ctx, batch)
-	inserted := 0
 	for _, em := range corpus {
-		tag, err := results.Exec()
-		if err != nil {
+		if _, err := results.Exec(); err != nil {
 			results.Close()
 			return 0, fmt.Errorf("inserting mention %q: %w", em.Mention.ID, err)
 		}
-		inserted += int(tag.RowsAffected())
-
 		if _, err := results.Exec(); err != nil {
 			results.Close()
 			return 0, fmt.Errorf("inserting enrichment for %q: %w", em.Mention.ID, err)
@@ -185,7 +184,7 @@ func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, c
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("committing the injection: %w", err)
 	}
-	return inserted, nil
+	return len(corpus), nil
 }
 
 // execer is the one method cleanup needs, so -cleanup can run it on the pool

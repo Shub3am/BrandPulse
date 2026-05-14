@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -23,8 +22,10 @@ import (
 )
 
 // injectionNow is fixed so the corpus, the buckets and the alert ids that
-// depend on them are the same on every run.
-var injectionNow = time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC)
+// depend on them are the same on every run. It hangs off testHour, well clear
+// of the top of the hour, so the corpus gets its full Spread without being
+// clamped.
+var injectionNow = testHour.Add(40 * time.Minute)
 
 // assumedBaseline is what the demo assumes the seeded corpus looks like: a few
 // mentions an hour per source, mostly not negative. It is the detector's half
@@ -36,7 +37,7 @@ var injectionNow = time.Date(2026, 9, 20, 14, 40, 0, 0, time.UTC)
 // corpus. That it matches these numbers is not checked anywhere yet, because
 // ComputeBaseline is still B1's stub.
 func assumedBaseline() models.BaselineStats {
-	stats := baseline(crisis.Sources[0], 4.0, 2.0, crisis.Sources[1:]...)
+	stats := baseline(4.0, 2.0, crisis.Sources...)
 	stats.NegativeShareMean = 0.18
 	stats.NegativeShareStd = 0.07
 	return stats
@@ -81,8 +82,9 @@ func TestTheInjectedCrisisFiresTheRealCrisisRule(t *testing.T) {
 				alert.DedupeKey, alert.Severity)
 		}
 		// The numbers the rule fired on, which is what an alert has to carry
-		// instead of a sentence.
-		if !slices.Equal(metrics(alert), crisisMetrics) {
+		// instead of a sentence. The length pins that nothing else rode along;
+		// the loop below pins that each one is present and windowed.
+		if len(alert.Evidence) != len(crisisMetrics) {
 			t.Errorf("crisis on %s carries %v, want %v", alert.DedupeKey, metrics(alert), crisisMetrics)
 		}
 		for _, metric := range crisisMetrics {

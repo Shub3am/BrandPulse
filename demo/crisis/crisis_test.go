@@ -46,8 +46,8 @@ func TestEveryInjectedMentionIsValidAndMarkedSynthetic(t *testing.T) {
 		}
 		seenHash[em.Mention.ContentHash] = true
 
-		// Against influencerFollowers, not against zero: this is an in-package
-		// test, so it can hold the corpus to the number it actually promises.
+		// The corpus promises Influencers authors at or above
+		// influencerFollowers, and this is the package that can check it.
 		if em.Mention.AuthorFollowers >= influencerFollowers {
 			influencers++
 		}
