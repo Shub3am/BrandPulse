@@ -94,10 +94,9 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 	for _, source := range crisis.Sources {
 		fmt.Fprintf(out, "  %-10s %d mentions\n", source, perSource[source])
 	}
-	// Counted from the corpus, not restated from crisis.Influencers: a dry run
-	// shows what is about to be written. Whether that count clears the
-	// detector's follower threshold is a claim this command cannot check, and
-	// it is asserted in agents/bp-detector/injection_test.go instead.
+	// A nonzero follower field, not an author above the detector's threshold:
+	// that threshold is not visible from here. That the corpus's influencers
+	// clear it is asserted in agents/bp-detector/injection_test.go.
 	fmt.Fprintf(out, "followers: %d of %d mentions carry an author follower count\n",
 		withFollowers, len(corpus))
 	fmt.Fprintf(out, "marker: every row carries raw.%s = true\n", crisis.SyntheticKey)

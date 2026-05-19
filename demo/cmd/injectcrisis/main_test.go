@@ -30,8 +30,9 @@ func TestDryRunWritesTheShapeAndTouchesNothing(t *testing.T) {
 		"nothing written",
 		"brd_demo",
 		fmt.Sprintf("%d synthetic mentions", crisis.Count),
-		// Only that the line is there; the count is the corpus's claim and
-		// demo/crisis asserts it.
+		// The prefix only. The numbers on this line are the corpus's, and
+		// which mentions carry a follower count is its business, not this
+		// command's.
 		"followers:",
 		string(models.SourceX),
 		string(models.SourceReddit),
