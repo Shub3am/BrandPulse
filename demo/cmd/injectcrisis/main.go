@@ -65,12 +65,12 @@ func run(ctx context.Context, brandID string, dryRun, doCleanup bool, out io.Wri
 		return nil
 	}
 
-	inserted, err := replaceInjection(ctx, pool, brandID, crisis.Mentions(brandID, time.Now().UTC()))
-	if err != nil {
+	corpus := crisis.Mentions(brandID, time.Now().UTC())
+	if err := replaceInjection(ctx, pool, brandID, corpus); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "injected %d synthetic mentions into %s across %d sources\n",
-		inserted, brandID, len(crisis.Sources))
+		len(corpus), brandID, len(crisis.Sources))
 	return nil
 }
 
@@ -94,11 +94,12 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 	for _, source := range crisis.Sources {
 		fmt.Fprintf(out, "  %-10s %d mentions\n", source, perSource[source])
 	}
-	// "followers", not "influencers": this command cannot see the detector's
-	// threshold, so it reports what it counted and does not claim the count
-	// clears anything. That claim is asserted against the real constant in
-	// agents/bp-detector/injection_test.go.
-	fmt.Fprintf(out, "followers: %d of %d authors carry a follower count\n", withFollowers, len(corpus))
+	// Counted from the corpus, not restated from crisis.Influencers: a dry run
+	// shows what is about to be written. Whether that count clears the
+	// detector's follower threshold is a claim this command cannot check, and
+	// it is asserted in agents/bp-detector/injection_test.go instead.
+	fmt.Fprintf(out, "followers: %d of %d mentions carry an author follower count\n",
+		withFollowers, len(corpus))
 	fmt.Fprintf(out, "marker: every row carries raw.%s = true\n", crisis.SyntheticKey)
 }
 
@@ -108,35 +109,34 @@ func describe(out io.Writer, brandID string, corpus []models.EnrichedMention) {
 // It clears first because the demo is rehearsed: the corpus is anchored to the
 // current hour, so leaving yesterday's rows in place would leave the surge in
 // an hour bucket the detector no longer looks at while the command reported a
-// successful injection. Every insert is unconditional, so the transaction
-// writes the whole corpus or it writes none of it.
-func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, corpus []models.EnrichedMention) (int, error) {
+// successful injection.
+func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, corpus []models.EnrichedMention) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("beginning the injection: %w", err)
+		return fmt.Errorf("beginning the injection: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	if _, err := cleanup(ctx, tx, brandID); err != nil {
-		return 0, err
+		return err
 	}
 
 	batch := &pgx.Batch{}
 	for _, em := range corpus {
 		if err := em.Mention.Validate(); err != nil {
-			return 0, fmt.Errorf("mention %q: %w", em.Mention.ID, err)
+			return fmt.Errorf("mention %q: %w", em.Mention.ID, err)
 		}
 		engagement, err := json.Marshal(em.Mention.Engagement)
 		if err != nil {
-			return 0, fmt.Errorf("mention %q engagement: %w", em.Mention.ID, err)
+			return fmt.Errorf("mention %q engagement: %w", em.Mention.ID, err)
 		}
 		raw, err := json.Marshal(em.Mention.Raw)
 		if err != nil {
-			return 0, fmt.Errorf("mention %q raw: %w", em.Mention.ID, err)
+			return fmt.Errorf("mention %q raw: %w", em.Mention.ID, err)
 		}
 		aspects, err := json.Marshal(em.Enrichment.Aspects)
 		if err != nil {
-			return 0, fmt.Errorf("mention %q aspects: %w", em.Mention.ID, err)
+			return fmt.Errorf("mention %q aspects: %w", em.Mention.ID, err)
 		}
 
 		// No ON CONFLICT: the clear above frees the synthetic ids, so the only
@@ -170,21 +170,21 @@ func replaceInjection(ctx context.Context, pool *pgxpool.Pool, brandID string, c
 	for _, em := range corpus {
 		if _, err := results.Exec(); err != nil {
 			results.Close()
-			return 0, fmt.Errorf("inserting mention %q: %w", em.Mention.ID, err)
+			return fmt.Errorf("inserting mention %q: %w", em.Mention.ID, err)
 		}
 		if _, err := results.Exec(); err != nil {
 			results.Close()
-			return 0, fmt.Errorf("inserting enrichment for %q: %w", em.Mention.ID, err)
+			return fmt.Errorf("inserting enrichment for %q: %w", em.Mention.ID, err)
 		}
 	}
 	if err := results.Close(); err != nil {
-		return 0, fmt.Errorf("closing the injection batch: %w", err)
+		return fmt.Errorf("closing the injection batch: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("committing the injection: %w", err)
+		return fmt.Errorf("committing the injection: %w", err)
 	}
-	return len(corpus), nil
+	return nil
 }
 
 // execer is the one method cleanup needs, so -cleanup can run it on the pool

@@ -30,9 +30,8 @@ func TestDryRunWritesTheShapeAndTouchesNothing(t *testing.T) {
 		"nothing written",
 		"brd_demo",
 		fmt.Sprintf("%d synthetic mentions", crisis.Count),
-		// Only that the line is there. How many authors carry followers is the
-		// corpus's claim and demo/crisis tests it; restating the number here
-		// would assert crisis.Influencers against itself.
+		// Only that the line is there; the count is the corpus's claim and
+		// demo/crisis asserts it.
 		"followers:",
 		string(models.SourceX),
 		string(models.SourceReddit),
