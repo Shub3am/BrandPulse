@@ -1,82 +1,60 @@
 {
-  "brand_id": "boat-lifestyle",
-  "name": "boAt",
-  "website": "https://www.boat-lifestyle.com/",
-
-  "keywords": [
-    "boAt Airdopes",
-    "boAt Rockerz",
-    "boAt Nirvana",
-    "boAt Stone",
-    "boAt earbuds",
-    "boAt headphones",
-    "boAt TWS",
-    "boat-lifestyle",
-    "Imagine Marketing"
-  ],
-
-  "hashtags": [
-    "#boAt",
-    "#boAtLifestyle",
-    "#PlugIntoNirvana",
-    "#boAtheads"
-  ],
-
-  "products": [
-    "boAt Airdopes 311 Pro",
-    "boAt Airdopes Loop",
-    "boAt Nirvana Ion",
-    "boAt Rockerz 550",
-    "boAt Stone 350"
-  ],
-
-  "competitors": [
-    "Noise",
-    "boult"
-  ],
-
-  "sources": [
-    "reddit",
-    "youtube",
-    "news",
-    "web",
-    "appstore",
-    "playstore"
-  ],
-
-  "negative_keywords": [
-    "Trent Boult",
-    "cricket",
-    "wicket",
-    "bowling",
-    "ODI",
-    "sailing",
-    "yacht",
-    "kayak",
-    "ferry",
-    "houseboat",
-    "fishing boat",
-    "boat ride",
-    "rowing"
-  ],
-
-  "source_handles": {
-    "appstore": "1592550875",
-    "playstore": "com.boAt.hearables",
-    "amazon": "B0CZ426LLT"
+  "brand": {
+    "id": "brd_demo",
+    "name": "Suncoast",
+    "website": "https://suncoast.example.in",
+    "plan": "growth",
+    "whatsapp_number": "+919999900001",
+    "daily_credit_budget": 150
   },
-
-  "voice": {
-    "tone": "warm, direct, no corporate filler",
-    "language": "English with light Hinglish if the mention is Hinglish",
-    "signature": "— Team boAt",
-    "do_not_say": [
-      "we apologise for the inconvenience caused",
-      "your call is important to us",
-      "kindly do the needful",
-      "as per our policy"
-    ]
-  },
-
-  "version": 1
+  "profile": {
+    "brand_id": "brd_demo",
+    "name": "Suncoast",
+    "website": "https://suncoast.example.in",
+    "keywords": [
+      "suncoast",
+      "suncoast sunscreen",
+      "suncoast spf 50",
+      "suncoast aqua gel"
+    ],
+    "hashtags": ["#suncoast", "#suncoastskin"],
+    "products": [
+      "Suncoast SPF 50 Aqua Gel",
+      "Suncoast Mineral Stick",
+      "Suncoast After Sun Serum"
+    ],
+    "competitors": ["Dot & Key", "Minimalist"],
+    "sources": [
+      "x",
+      "reddit",
+      "youtube",
+      "news",
+      "playstore",
+      "appstore",
+      "amazon",
+      "flipkart",
+      "instagram",
+      "web"
+    ],
+    "negative_keywords": ["sun coast realty", "suncoast credit union"],
+    "source_handles": {
+      "amazon": "B0CDEMO123",
+      "flipkart": "MOBGDEMO456",
+      "playstore": "in.suncoast.app",
+      "appstore": "1600000001",
+      "x": "suncoastskin",
+      "instagram": "suncoastskin"
+    },
+    "voice": {
+      "tone": "warm, direct, no corporate filler",
+      "language": "English with light Hinglish if the mention is Hinglish",
+      "signature": "- Team Suncoast",
+      "do_not_say": [
+        "we guarantee",
+        "this has never happened before",
+        "as per our policy"
+      ]
+    },
+    "version": 1
+  }
 }

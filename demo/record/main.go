@@ -111,10 +111,17 @@ func loadBrands(path string) (models.BrandProfile, []models.BrandProfile, error)
 		return models.BrandProfile{}, nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	var brand models.BrandProfile
-	if err := json.Unmarshal(raw, &brand); err != nil {
+	// brand.json holds the brands-table row under "brand" and the profile under
+	// "profile". Only the profile is decoded here: the row's columns are
+	// demo/cmd/seed's business, and repeating them would be a second place for
+	// them to drift.
+	var file struct {
+		Profile models.BrandProfile `json:"profile"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
 		return models.BrandProfile{}, nil, fmt.Errorf("decoding %s: %w", path, err)
 	}
+	brand := file.Profile
 	if err := brand.Validate(); err != nil {
 		return models.BrandProfile{}, nil, fmt.Errorf("%s: %w", path, err)
 	}

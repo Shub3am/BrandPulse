@@ -3,54 +3,44 @@
 // Guardrails is parsed rather than duplicated as a Go literal, which buys one
 // source of truth and costs a parser that can go wrong in two silent ways:
 // dropping the tail of a wrapped bullet, and swallowing the prose that follows
-// a list. Both produce a shorter guardrail list and neither produces an error,
-// so bp-responder would just quietly promise a refund.
+// a list. Both produce a wrong guardrail list and neither produces an error, so
+// bp-responder would just quietly promise a refund. The wrapped-bullet case is
+// pinned in TestParseBullets rather than against guardrails.md, because no
+// phrase in that file is long enough to wrap and inventing one to test the
+// parser would be testing the fixture.
 package prompts
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestGuardrailsAreTheSixInTheFile(t *testing.T) {
+func TestGuardrailsAreTheThirtyInTheFile(t *testing.T) {
 	// The count is asserted so that adding a guardrail to the markdown without
 	// this test noticing is impossible: the failure names the new total and
 	// the fix is one line.
-	if len(Guardrails) != 6 {
-		t.Fatalf("Guardrails has %d entries, want 6:\n%s", len(Guardrails), strings.Join(Guardrails, "\n"))
+	if len(Guardrails) != 30 {
+		t.Fatalf("Guardrails has %d entries, want 30:\n%s", len(Guardrails), strings.Join(Guardrails, "\n"))
 	}
 
-	mustMention := []string{"refund", "fault", "medical", "employee", "deadline", "negligent"}
-	for _, subject := range mustMention {
-		found := false
-		for _, guardrail := range Guardrails {
-			if strings.Contains(guardrail, subject) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("no guardrail mentions %q:\n%s", subject, strings.Join(Guardrails, "\n"))
+	// One phrase per group in the file, so a whole section going missing fails
+	// here rather than in a draft nobody reread.
+	mustContain := []string{"refund everyone", "this is our fault", "clinically proven", "our employee", "by tomorrow", "we will sue"}
+	for _, phrase := range mustContain {
+		if !slices.Contains(Guardrails, phrase) {
+			t.Errorf("no guardrail is %q:\n%s", phrase, strings.Join(Guardrails, "\n"))
 		}
 	}
 }
 
-func TestAWrappedBulletKeepsItsTail(t *testing.T) {
-	// The legal-characterisation bullet wraps in guardrails.md. If the
-	// continuation line were dropped, the guardrail would read "Never
-	// characterise anything in legal terms, such as saying the brand was" and
-	// still look plausible in a diff.
-	var legal string
+func TestEveryGuardrailIsALowercasePhrase(t *testing.T) {
+	// bp-responder lowercases the draft and does a substring match, so an
+	// upper-case character in the file is a guardrail that can never fire.
 	for _, guardrail := range Guardrails {
-		if strings.Contains(guardrail, "legal terms") {
-			legal = guardrail
+		if guardrail != strings.ToLower(guardrail) {
+			t.Errorf("guardrail %q is not lower case, so it can never match a draft", guardrail)
 		}
-	}
-	if legal == "" {
-		t.Fatal("the legal-characterisation guardrail is missing entirely")
-	}
-	if !strings.HasSuffix(legal, "negligent.") {
-		t.Errorf("the wrapped bullet is %q, which lost its continuation line", legal)
 	}
 }
 
@@ -105,7 +95,7 @@ func TestParseBullets(t *testing.T) {
 }
 
 func TestLoadReturnsTheFile(t *testing.T) {
-	if !strings.Contains(Load("guardrails"), "# Response guardrails") {
+	if !strings.Contains(Load("guardrails"), "# Global guardrails") {
 		t.Error("Load(\"guardrails\") did not return guardrails.md")
 	}
 }

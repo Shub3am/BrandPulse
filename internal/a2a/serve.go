@@ -95,7 +95,19 @@ func newMux[In, Out any](card Card, h Handler[In, Out]) http.Handler {
 	// otelhttp goes on once, here, rather than in nine main()s. internal/obs
 	// builds the provider; this is the only thing in the repository that
 	// instruments a handler.
-	return otelhttp.NewHandler(mux, card.Name)
+	return otelhttp.NewHandler(carryAgentToken(mux), card.Name)
+}
+
+// carryAgentToken moves Nasiko's inbound delegation JWT onto the request
+// context, which is the only way Call can replay it on a peer call: it is a
+// property of the request being served, not of the process. See call.go.
+func carryAgentToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token := r.Header.Get(agentTokenHeader); token != "" {
+			r = r.WithContext(WithAgentToken(r.Context(), token))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // executorFor adapts one Handle call to the SDK's event stream.
@@ -171,29 +183,35 @@ func decodeInput[In any](message *a2aproto.Message) (In, error) {
 		return in, fmt.Errorf("a2a: the request carries %d parts, want exactly 1", len(parts))
 	}
 
-	part := parts[0]
-	var body []byte
-	switch content := part.Content.(type) {
-	case a2aproto.Data:
-		// Data.Value arrived as map[string]any, so it has to go back through
-		// json.Marshal before it can land in a typed struct.
-		marshalled, err := json.Marshal(content.Value)
-		if err != nil {
-			return in, fmt.Errorf("a2a: re-encode the data part: %w", err)
-		}
-		body = marshalled
-	case a2aproto.Raw:
-		body = content
-	case a2aproto.Text:
-		body = []byte(content)
-	default:
-		return in, fmt.Errorf("a2a: the part carries %T, want JSON as data, raw or text", part.Content)
+	body, err := jsonFromPart(parts[0])
+	if err != nil {
+		return in, err
 	}
-
 	if err := json.Unmarshal(body, &in); err != nil {
 		return in, fmt.Errorf("a2a: the part is not a %s: %w", typeName[In](), err)
 	}
 	return in, nil
+}
+
+// jsonFromPart is the one place a content part becomes bytes, used on the way
+// in by decodeInput and on the way out by Call's decodeArtifact.
+func jsonFromPart(part *a2aproto.Part) ([]byte, error) {
+	switch content := part.Content.(type) {
+	case a2aproto.Data:
+		// Data.Value arrived as map[string]any, so it has to go back through
+		// json.Marshal before it can land in a typed struct.
+		body, err := json.Marshal(content.Value)
+		if err != nil {
+			return nil, fmt.Errorf("a2a: re-encode the data part: %w", err)
+		}
+		return body, nil
+	case a2aproto.Raw:
+		return content, nil
+	case a2aproto.Text:
+		return []byte(content), nil
+	default:
+		return nil, fmt.Errorf("a2a: the part carries %T, want JSON as data, raw or text", part.Content)
+	}
 }
 
 // taskFailure carries the reason into the task status, because an alert that
@@ -201,21 +219,4 @@ func decodeInput[In any](message *a2aproto.Message) (In, error) {
 func taskFailure(execCtx *a2asrv.ExecutorContext, err error) a2aproto.Event {
 	reason := a2aproto.NewMessage(a2aproto.MessageRoleAgent, a2aproto.NewTextPart(err.Error()))
 	return a2aproto.NewStatusUpdateEvent(execCtx, a2aproto.TaskStateFailed, reason)
-}
-
-// Call reaches a peer agent through the Nasiko proxy. bp-orchestrator is the
-// only caller.
-//
-// No agent constructs a peer URL: the proxy address and the routing header are
-// Nasiko's, and a hardcoded one breaks on the next redeploy.
-//
-// STUB: B1 Task 11 does not cover this and nothing calls it yet. See the
-// blocker row in HACKATHON_NOTES; whoever writes bp-orchestrator needs it.
-//
-// It returns an error rather than panicking. The signature already returns one,
-// so the caller's existing error path absorbs it, and a panic here would be the
-// worst failure this package can produce: taskFailure exists precisely so that
-// trouble becomes a reported task state instead of a dead server process.
-func Call(ctx context.Context, agent string, in any, out any) error {
-	return fmt.Errorf("a2a: Call is not implemented, so %s cannot be reached; see the B1/B4 blocker in HACKATHON_NOTES", agent)
 }

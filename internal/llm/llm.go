@@ -64,6 +64,12 @@ type Usage struct {
 	CostPaise                      float64
 }
 
+// ChatJSONFunc is ChatJSON's signature. An agent that calls a model holds this
+// as a field and is constructed with llm.ChatJSON, so a test hands it a canned
+// reply instead of reaching the router. bp-enricher, bp-briefer and
+// bp-responder each reached for this shape independently.
+type ChatJSONFunc func(ctx context.Context, prompt string, schema any, opt Opt) (json.RawMessage, Usage, error)
+
 // ChatJSON sends prompt and returns a response constrained to schema by a
 // strict JSON-schema response format. schema is any Go value whose shape
 // describes the expected reply; the raw JSON comes back undecoded so the

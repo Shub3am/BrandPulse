@@ -1,0 +1,29 @@
+{
+  "name": "bp-briefer",
+  "description": "Writes the daily and weekly brief for one brand: a headline, a short narrative and two to four suggested actions, wrapped around numbers the orchestrator measured. Every figure is formatted in Go; the model is never asked to restate one.",
+  "url": "http://bp-briefer:8080/",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "preferredTransport": "JSONRPC",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "write_brief",
+      "name": "Write a brief",
+      "description": "Takes a BriefInput of topics, alerts, share of voice and BriefNumbers and returns a DailyBrief. Markdown is the full brief; whatsapp_short is at most 600 characters with no tables and no links. Period is \"daily\" or \"weekly\" and both use the same path. One LLM call. No database access.",
+      "tags": ["reporting", "summarisation", "whatsapp"],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"],
+      "examples": [
+        "Write the daily brief for brand brd_01J9 covering 19 September to 20 September.",
+        "Write the weekly brief for brand brd_01J9 from the topics, alerts and share of voice already computed for the week."
+      ]
+    }
+  ]
+}
