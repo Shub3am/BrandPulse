@@ -296,19 +296,19 @@ agent-vendoring PR is dropped.
 What replaces it is better. Your finding 7 is a genuine spec-conformance bug in
 their CLI, found by running it rather than reading it:
 
-- [ ] `validate.rs` requires `url`, `protocolVersion` and `preferredTransport`
+- [x] `validate.rs` requires `url`, `protocolVersion` and `preferredTransport`
       at the top level of the card. A2A **1.0** moved all three into
       `supportedInterfaces[]`, so a spec-correct card written by any current
       A2A SDK fails `nasiko validate`. Today the only card that passes is one
       carrying both shapes, which is what we ship and what nobody should have
       to discover by hand.
-- [ ] Make the validator accept either placement: read the three from the top
+- [x] Make the validator accept either placement: read the three from the top
       level, and fall back to the first entry of `supportedInterfaces[]`. Keep
       the existing error message for a card that has neither.
-- [ ] A test per placement: top-level only, `supportedInterfaces` only, both,
+- [x] A test per placement: top-level only, `supportedInterfaces` only, both,
       neither. Rust, in their tree, importing nothing of ours.
-- [ ] One logical change, what and why, per their CONTRIBUTING.md.
-- [ ] Open the PR. Link it in `HACKATHON_NOTES.md`.
+- [x] One logical change, what and why, per their CONTRIBUTING.md.
+- [x] Open the PR. Link it in `HACKATHON_NOTES.md`.
 
 This is a stronger submission than vendoring nine directories would have been.
 It says we used the platform hard enough to find a real bug in it and sent the
