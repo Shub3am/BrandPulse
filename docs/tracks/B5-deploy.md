@@ -397,26 +397,29 @@ this out before you build the agent, not after.
 **Files:** `README.md`, `docs/ARCHITECTURE.md`, `docs/SETUP.md`,
 `docs/PRICING.md`, `docs/DEMO-SCRIPT.md`, `docs/LINKEDIN.md`
 
-- [ ] `README.md`: what it is, the honest source list from
+- [x] `README.md`: what it is, the honest source list from
       [SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md), the public-data-only
       statement, the never-auto-posts statement, and how to run it.
-- [ ] `ARCHITECTURE.md`: the nine agents, the call graph, which four are
+- [x] `ARCHITECTURE.md`: the nine agents, the call graph, which four are
       deterministic, where every platform is load-bearing, and the two
       front-end surfaces with their audiences so the DronaHQ/`web/` split reads
       as a decision rather than an accident.
-- [ ] `SETUP.md`: the Go toolchain version,
+- [x] `SETUP.md`: the Go toolchain version,
       `docker compose up -d --no-recreate postgres`, the migration,
       `BP_FIXTURE_MODE=replay`, and the module path. Somebody cloning this at
       2am should not need to ask. A fresh clone is a single checkout, so say
       that `--no-recreate` is there for the seven-worktree case and is a no-op
       for them.
-- [ ] `PRICING.md`: unit economics from **B3's real `go run ./eval/cost`
+- [ ] `PRICING.md` (**structure written, numbers blocked on B3**): unit economics from **B3's real `go run ./eval/cost`
       output**, versus Brandwatch/Sprinklr/Meltwater list prices. If the real
       number misses the ₹15 target, print it anyway and explain what would close
       it. No invented numbers.
-- [ ] `DEMO-SCRIPT.md`: the 2-minute run with timings, and what to say when a
+- [x] `DEMO-SCRIPT.md`: the 2-minute run with timings, and what to say when a
       step fails.
 - [ ] Record the fallback video in Phase 5.
+
+`docs/LINKEDIN.md` is written too, three drafts, every cost figure a `[COST]`
+placeholder until `eval/cost` exists.
 
 ---
 
