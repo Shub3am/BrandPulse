@@ -296,19 +296,19 @@ agent-vendoring PR is dropped.
 What replaces it is better. Your finding 7 is a genuine spec-conformance bug in
 their CLI, found by running it rather than reading it:
 
-- [ ] `validate.rs` requires `url`, `protocolVersion` and `preferredTransport`
+- [x] `validate.rs` requires `url`, `protocolVersion` and `preferredTransport`
       at the top level of the card. A2A **1.0** moved all three into
       `supportedInterfaces[]`, so a spec-correct card written by any current
       A2A SDK fails `nasiko validate`. Today the only card that passes is one
       carrying both shapes, which is what we ship and what nobody should have
       to discover by hand.
-- [ ] Make the validator accept either placement: read the three from the top
+- [x] Make the validator accept either placement: read the three from the top
       level, and fall back to the first entry of `supportedInterfaces[]`. Keep
       the existing error message for a card that has neither.
-- [ ] A test per placement: top-level only, `supportedInterfaces` only, both,
+- [x] A test per placement: top-level only, `supportedInterfaces` only, both,
       neither. Rust, in their tree, importing nothing of ours.
-- [ ] One logical change, what and why, per their CONTRIBUTING.md.
-- [ ] Open the PR. Link it in `HACKATHON_NOTES.md`.
+- [x] One logical change, what and why, per their CONTRIBUTING.md.
+- [x] Open the PR. Link it in `HACKATHON_NOTES.md`.
 
 This is a stronger submission than vendoring nine directories would have been.
 It says we used the platform hard enough to find a real bug in it and sent the
@@ -397,26 +397,29 @@ this out before you build the agent, not after.
 **Files:** `README.md`, `docs/ARCHITECTURE.md`, `docs/SETUP.md`,
 `docs/PRICING.md`, `docs/DEMO-SCRIPT.md`, `docs/LINKEDIN.md`
 
-- [ ] `README.md`: what it is, the honest source list from
+- [x] `README.md`: what it is, the honest source list from
       [SOURCE-STRATEGY.md](../SOURCE-STRATEGY.md), the public-data-only
       statement, the never-auto-posts statement, and how to run it.
-- [ ] `ARCHITECTURE.md`: the nine agents, the call graph, which four are
+- [x] `ARCHITECTURE.md`: the nine agents, the call graph, which four are
       deterministic, where every platform is load-bearing, and the two
       front-end surfaces with their audiences so the DronaHQ/`web/` split reads
       as a decision rather than an accident.
-- [ ] `SETUP.md`: the Go toolchain version,
+- [x] `SETUP.md`: the Go toolchain version,
       `docker compose up -d --no-recreate postgres`, the migration,
       `BP_FIXTURE_MODE=replay`, and the module path. Somebody cloning this at
       2am should not need to ask. A fresh clone is a single checkout, so say
       that `--no-recreate` is there for the seven-worktree case and is a no-op
       for them.
-- [ ] `PRICING.md`: unit economics from **B3's real `go run ./eval/cost`
+- [ ] `PRICING.md` (**structure written, numbers blocked on B3**): unit economics from **B3's real `go run ./eval/cost`
       output**, versus Brandwatch/Sprinklr/Meltwater list prices. If the real
       number misses the ₹15 target, print it anyway and explain what would close
       it. No invented numbers.
-- [ ] `DEMO-SCRIPT.md`: the 2-minute run with timings, and what to say when a
+- [x] `DEMO-SCRIPT.md`: the 2-minute run with timings, and what to say when a
       step fails.
 - [ ] Record the fallback video in Phase 5.
+
+`docs/LINKEDIN.md` is written too, three drafts, every cost figure a `[COST]`
+placeholder until `eval/cost` exists.
 
 ---
 

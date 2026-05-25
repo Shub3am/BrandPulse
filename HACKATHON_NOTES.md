@@ -61,6 +61,30 @@ blocker row and why it comes before B1's own implementation.
 Each entry: the question, the answer, and how it was verified. An unverified
 answer stays in "Open questions".
 
+### 2026-09-20 — B5 — the Nasiko PR is open: https://github.com/Nasiko-Labs/nasiko/pull/176
+
+Task 6 is done. `fix(cli): accept A2A 1.0 AgentCards in validate`, one commit,
+Rust only, importing nothing of ours, against `Nasiko-Labs/nasiko` `main` from
+`ShubTvaram:fix/validate-a2a-1.0-agent-card`.
+
+`cli/src/commands/validate.rs` required `url`, `protocolVersion` and
+`preferredTransport` at the card root. A2A 1.0 moved all three into
+`supportedInterfaces[]` and renamed the transport to `protocolBinding`, so a
+card serialised by any current SDK failed with a message naming three fields
+that were all present. Each field is now satisfied by either placement, falling
+back to the first entry of `supportedInterfaces[]`. The fallback mapping is not
+my reading of the spec, it is what a2a-go's own 1.0-to-0.2.x downgrade does at
+`a2acompat/a2av0/conversions.go:874`.
+
+Verified four ways with the real binary: a 1.0 card that failed now passes, a
+0.2.x card still passes, a card carrying both passes, and a card carrying
+neither still fails with a byte-identical message. Nine new tests, whole suite
+315 passed.
+
+**Nothing changes for B3 and B4.** Keep writing the union card. This PR is
+upstream and unmerged, so the CLI we actually deploy with is still the strict
+one, and the union satisfies both regardless.
+
 ### 2026-09-20 — main — there is a pipeline now, and hosting is ruled
 
 **CI is live.** `.github/workflows/ci.yml` runs on `main` and every `track/**`
@@ -1611,10 +1635,10 @@ brackets and is replaced, never quietly promoted.
 | Intent accuracy | — | `go run ./eval/accuracy` | B3 |
 | Cost per brand-day, cold | _(target < ₹15)_ | `go run ./eval/cost` | B3 |
 | Cost per brand-day, warm cache | — | `go run ./eval/cost` | B3 |
-| Agent container image size | — | `docker images` after build | B5 |
+| Agent container image size | **14.6MB** | `docker images` after build | B5 |
 | Agents deployed on Nasiko | 0 / 9 | `nasiko deploy` | B5 |
 | Time from mention to alert on screen | — | measured in the browser, `alerts.created_at` to the alert feed's receipt, per the scope change | B6 |
-| Nasiko PR | — | link | B5 |
+| Nasiko PR | **[#176](https://github.com/Nasiko-Labs/nasiko/pull/176)**, open | link | B5 |
 
 ### 2026-09-20 — B2 Tasks 6 and 7 — Crawl is not what the docs say, and it cost me 11 credits to find out
 
