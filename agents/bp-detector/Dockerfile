@@ -23,8 +23,8 @@ WORKDIR /
 COPY --from=build /out/bp-detector /bp-detector
 COPY agents/bp-detector/AgentCard.json /AgentCard.json
 
-# a2a.Serve reads PORT. 8080 matches the url in AgentCard.json.
-ENV PORT=8080
-EXPOSE 8080
+# a2a.Serve reads PORT and falls back to 8000, which is what the url in
+# AgentCard.json says. Setting PORT here would be a second place for it to drift.
+EXPOSE 8000
 USER nonroot:nonroot
 ENTRYPOINT ["/bp-detector"]

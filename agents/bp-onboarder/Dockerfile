@@ -33,6 +33,6 @@ COPY --from=build /out/bp-onboarder /app/bp-onboarder
 COPY agents/bp-onboarder/AgentCard.json /app/AgentCard.json
 
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 8000
 
 ENTRYPOINT ["/app/bp-onboarder"]

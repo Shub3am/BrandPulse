@@ -30,6 +30,6 @@ COPY --from=build /out/bp-collector /app/bp-collector
 COPY agents/bp-collector/AgentCard.json /app/AgentCard.json
 
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 8000
 
 ENTRYPOINT ["/app/bp-collector"]
