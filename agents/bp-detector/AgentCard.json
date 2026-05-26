@@ -1,10 +1,17 @@
 {
   "name": "bp-detector",
   "description": "Fires five statistical alert rules over a window of enriched mentions: spike, crisis, review_bomb, influencer_mention and competitor_move. Every alert carries the observed value and the threshold that fired it. No language model is involved.",
-  "url": "http://bp-detector:8080/",
+  "url": "http://bp-detector:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-detector:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "llm_provider": null,
   "capabilities": {
     "streaming": false,

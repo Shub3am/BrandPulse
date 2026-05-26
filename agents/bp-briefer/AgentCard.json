@@ -1,10 +1,17 @@
 {
   "name": "bp-briefer",
   "description": "Writes the daily and weekly brief for one brand: a headline, a short narrative and two to four suggested actions, wrapped around numbers the orchestrator measured. Every figure is formatted in Go; the model is never asked to restate one.",
-  "url": "http://bp-briefer:8080/",
+  "url": "http://bp-briefer:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-briefer:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,

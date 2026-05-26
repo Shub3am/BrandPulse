@@ -2,10 +2,17 @@
   "protocolVersion": "1.0",
   "name": "bp-onboarder",
   "description": "Turns a brand's own website into the keyword set the collectors search for.",
-  "url": "http://bp-onboarder:8080/",
+  "url": "http://bp-onboarder:8000/",
   "version": "0.1.0",
-  "preferredTransport": "http",
-  "transport": "http",
+  "preferredTransport": "JSONRPC",
+  "transport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-onboarder:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,

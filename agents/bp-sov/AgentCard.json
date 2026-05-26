@@ -1,11 +1,18 @@
 {
   "name": "bp-sov",
   "description": "Counts share of voice for a brand against its named competitors over a time window. Pure counting: no LLM call, no network call, no database read. Input is a SOVInput, output is one application/json artifact holding a ShareOfVoice.",
-  "url": "http://localhost:8000/",
+  "url": "http://bp-sov:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
-  "transport": "http",
+  "transport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-sov:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "framework": "a2a-go",
   "agentFramework": "a2a-go",
   "llm_provider": null,

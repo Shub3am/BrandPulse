@@ -1,10 +1,17 @@
 {
   "name": "bp-responder",
   "description": "Drafts one guardrailed reply to an alert or a mention, in the brand's voice. Every draft is a ReplyDraft whose wire form carries requires_human_approval: true. This agent does not post, anywhere, ever.",
-  "url": "http://bp-responder:8080/",
+  "url": "http://bp-responder:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-responder:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,

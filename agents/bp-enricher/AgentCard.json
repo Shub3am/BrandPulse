@@ -1,11 +1,18 @@
 {
   "name": "bp-enricher",
   "description": "Batched sentiment, emotion, intent and aspect classifier for public mentions, tuned for Hinglish. Input is an EnrichInput, output is one application/json artifact holding an EnrichmentBatch. PII is stripped from every mention before it reaches the model.",
-  "url": "http://localhost:8000/",
+  "url": "http://bp-enricher:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
-  "transport": "http",
+  "transport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-enricher:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "framework": "a2a-go",
   "agentFramework": "a2a-go",
   "llm_provider": "nasiko-router",

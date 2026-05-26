@@ -2,10 +2,17 @@
   "protocolVersion": "1.0",
   "name": "bp-collector",
   "description": "Fetches one source's mentions for one brand and one time window, within a credit ceiling.",
-  "url": "http://bp-collector:8080/",
+  "url": "http://bp-collector:8000/",
   "version": "0.1.0",
-  "preferredTransport": "http",
-  "transport": "http",
+  "preferredTransport": "JSONRPC",
+  "transport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-collector:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,

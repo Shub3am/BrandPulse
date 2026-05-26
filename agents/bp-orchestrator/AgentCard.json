@@ -1,10 +1,17 @@
 {
   "name": "bp-orchestrator",
   "description": "Runs the nine-step pipeline for one brand and one trigger: claims the run bucket, ranks and caps the sources, collects, enriches, clusters, counts share of voice, detects alerts, drafts replies and writes the brief. No language model. A re-trigger inside the same time bucket is a no-op.",
-  "url": "http://bp-orchestrator:8080/",
+  "url": "http://bp-orchestrator:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-orchestrator:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "llm_provider": null,
   "capabilities": {
     "streaming": false,

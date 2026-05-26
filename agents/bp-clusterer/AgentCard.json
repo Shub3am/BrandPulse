@@ -1,11 +1,18 @@
 {
   "name": "bp-clusterer",
   "description": "Groups enriched mentions into topics with local TF-IDF and average-linkage agglomerative clustering, then spends one model call per cluster to label and summarise it. Input is a ClusterInput, output is one application/json artifact holding a TopicSet.",
-  "url": "http://localhost:8000/",
+  "url": "http://bp-clusterer:8000/",
   "version": "0.1.0",
   "protocolVersion": "1.0",
   "preferredTransport": "JSONRPC",
-  "transport": "http",
+  "transport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "http://bp-clusterer:8000/",
+      "protocolVersion": "1.0",
+      "preferredTransport": "JSONRPC"
+    }
+  ],
   "framework": "a2a-go",
   "agentFramework": "a2a-go",
   "llm_provider": "nasiko-router",
