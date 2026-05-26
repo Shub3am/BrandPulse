@@ -64,6 +64,10 @@ func useRouter(t *testing.T, bodies ...string) *scriptedRouter {
 
 	router := &scriptedRouter{bodies: bodies}
 	t.Setenv("OPENAI_BASE_URL", "https://router.invalid/v1")
+	// Cleared rather than left alone: a developer with OPENAI_MODEL exported
+	// for a local run would otherwise silently override every Opt.Model these
+	// tests assert on.
+	t.Setenv("OPENAI_MODEL", "")
 	routerHTTPClient = &http.Client{Transport: router}
 	t.Cleanup(func() { routerHTTPClient = nil })
 	return router
@@ -313,4 +317,44 @@ func embeddingBody(count int) string {
 		panic(err)
 	}
 	return string(body)
+}
+
+func TestOPENAIMODELOverridesTheRequestedModel(t *testing.T) {
+	// A Nasiko alias is what the agents actually hardcode: bp-briefer passes
+	// "bp-briefer-default", which names a router entry and not a model. Off
+	// Nasiko that alias reaches the provider verbatim and is rejected, so the
+	// variable naming the real model has to win.
+	router := useRouter(t, completionBody("openai/gpt-4o", `{"label":"positive","score":4}`, 10, 5))
+	t.Setenv("OPENAI_MODEL", "gpt-4o-mini")
+
+	if _, _, err := ChatJSON(context.Background(), "how does this review feel?", sentiment{}, Opt{Model: "bp-briefer-default"}); err != nil {
+		t.Fatalf("ChatJSON: %v", err)
+	}
+	if got := router.sent[0].body["model"]; got != "gpt-4o-mini" {
+		t.Errorf("model = %v, want gpt-4o-mini from OPENAI_MODEL", got)
+	}
+}
+
+func TestTheRequestedModelIsSentWhenOPENAIMODELIsUnset(t *testing.T) {
+	router := useRouter(t, completionBody("openai/gpt-4o", `{"label":"positive","score":4}`, 10, 5))
+
+	if _, _, err := ChatJSON(context.Background(), "how does this review feel?", sentiment{}, Opt{Model: "bp-briefer-default"}); err != nil {
+		t.Fatalf("ChatJSON: %v", err)
+	}
+	if got := router.sent[0].body["model"]; got != "bp-briefer-default" {
+		t.Errorf("model = %v, want the alias the caller passed", got)
+	}
+}
+
+func TestNoModelIsSentWhenNeitherIsSet(t *testing.T) {
+	// The Nasiko router resolves the agent's model itself and wants the field
+	// absent, so an empty string must not be marshalled in its place.
+	router := useRouter(t, completionBody("openai/gpt-4o", `{"label":"positive","score":4}`, 10, 5))
+
+	if _, _, err := ChatJSON(context.Background(), "how does this review feel?", sentiment{}, Opt{}); err != nil {
+		t.Fatalf("ChatJSON: %v", err)
+	}
+	if got, ok := router.sent[0].body["model"]; ok && got != "" {
+		t.Errorf("model = %v, want it absent or empty", got)
+	}
 }

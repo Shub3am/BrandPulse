@@ -57,6 +57,31 @@ type Opt struct {
 	MaxTokens int
 }
 
+// modelEnv is the third variable Nasiko injects beside OPENAI_BASE_URL and
+// OPENAI_API_KEY. This package used to read the first two and ignore this one.
+const modelEnv = "OPENAI_MODEL"
+
+// resolveModel decides what goes in the request body's model field.
+//
+// OPENAI_MODEL wins over Opt.Model, which looks backwards until you take the
+// two endpoints in turn. The Nasiko router ignores the body's model entirely
+// and resolves the agent's model from "nasiko llm-config", so there this
+// changes nothing whichever way it is decided. Any other OpenAI-compatible
+// endpoint honours the body and rejects both shapes an agent sends today: an
+// empty model, and a Nasiko alias like "bp-briefer-default" that names a
+// router entry rather than a model. So the variable naming the model the
+// endpoint actually serves has to be able to override a per-agent alias, or
+// running outside Nasiko needs a code change per agent.
+//
+// Empty is returned when neither is set, and the SDK then omits the field,
+// which is what the router wants.
+func resolveModel(requested string) string {
+	if model := os.Getenv(modelEnv); model != "" {
+		return model
+	}
+	return requested
+}
+
 // Usage is what one call actually cost. CostPaise is priced from the model the
 // router reports in its response, never from the model requested.
 type Usage struct {
@@ -96,8 +121,8 @@ func ChatJSON(ctx context.Context, prompt string, schema any, opt Opt) (json.Raw
 			Messages:       messages,
 			ResponseFormat: format,
 		}
-		if opt.Model != "" {
-			params.Model = opt.Model
+		if model := resolveModel(opt.Model); model != "" {
+			params.Model = model
 		}
 		if opt.MaxTokens > 0 {
 			// max_tokens, not max_completion_tokens: the router fronts
