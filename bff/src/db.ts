@@ -61,6 +61,17 @@ export function createHistory(databaseUrl: string, timeoutMs: number): History {
     options: "-c default_transaction_read_only=on",
   });
 
+  // pg emits "error" on the pool when Postgres drops a client that is sitting
+  // idle, which happens on a restart or an idle timeout and is not a request
+  // failing. An EventEmitter with no "error" listener rethrows, and node turns
+  // that into an unhandled exception, so without this line one recycled
+  // connection takes the whole dashboard backend down with it. Swallowing it
+  // is correct: pg discards the dead client itself and the next query checks
+  // out a fresh one.
+  pool.on("error", (cause) => {
+    console.error("bff: postgres dropped an idle connection:", cause.message);
+  });
+
   async function query<Row extends QueryResultRow>(sql: string, params: unknown[]): Promise<Row[]> {
     const result = await pool.query<Row>(sql, params);
     return result.rows;
