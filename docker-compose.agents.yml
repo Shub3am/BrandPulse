@@ -1,0 +1,195 @@
+# The nine agents, on one laptop, against the Postgres docker-compose.yml
+# already owns.
+#
+# This file exists because docker-compose.yml says in its own header that it
+# must not grow application services, and it is right: that file is frozen and
+# shared by every worktree, and a bp-* service in it would be a second way to
+# run an agent. So the agents live here and layer on top:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.agents.yml up -d
+#
+# It must not be used on its own. `postgres` is defined in the other file, and
+# a single -f here produces "service postgres not found" from the depends_on
+# below. It must not define a database, a volume or a second network: the whole
+# point is to join the project docker-compose.yml already pinned.
+#
+# It must not set PORT. internal/a2a/serve.go falls back to 8000 when PORT is
+# unset, and every AgentCard.json and every Dockerfile's EXPOSE already say
+# 8000. A PORT here would be a fourth place for that number to drift.
+#
+# It must not put a bp-* agent on the host network or map a second host port.
+# Nasiko gives the outside world one ingress and keeps agent containers
+# unreachable; the ports block below is the only deliberate hole in that.
+
+# Same project name as docker-compose.yml, and for the same reason. Without it
+# Compose names the project after the directory, this file's agents land in a
+# project of their own, and `up` starts a second Postgres with an empty volume
+# instead of reusing the one the other tracks are already using.
+name: brandpulse
+
+# Nine services that differ in three lines each is the shape that invites a
+# copy-paste fork, so the identical parts are anchored once. The environment
+# map is anchored separately from the rest of the service because three agents
+# need to extend it, and a YAML merge key can only add to a map, never to the
+# service block wholesale.
+x-agent-env: &agent-env
+  # How one agent addresses another. internal/a2a/call.go substitutes the
+  # literal {agent} into this template, and it refuses to call anyone when the
+  # variable is unset or carries no placeholder. Compose only interpolates
+  # ${...}, so {agent} passes through untouched.
+  #
+  # Set on all nine even though bp-orchestrator is the only agent that calls a
+  # peer today. An agent that grows a peer call should fail with call.go's
+  # message about the peer, not with "NASIKO_API_URL is unset", and nine
+  # identical values cannot fork the way eight-plus-one can.
+  NASIKO_API_URL: "http://{agent}:8000/"
+
+  # replay is the default and the host may override it; nothing here can turn
+  # it into a spend by omission. In replay internal/anakin reads fixtures/ and
+  # makes no network call at all, so a stray `up` cannot touch the 300 credits.
+  # The host's .env already says replay, so this is belt and braces on purpose.
+  BP_FIXTURE_MODE: ${BP_FIXTURE_MODE:-replay}
+
+  # internal/obs returns a no-op shutdown and a nil error when this is empty,
+  # so an agent with no collector is silent rather than dead. Passed through
+  # rather than defaulted because the OTLP exporter reads the rest of the
+  # OTEL_* family itself and a guess here would fight it.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+  # internal/llm is the only caller of either. No default is invented for the
+  # base URL: there is no direct-to-provider fallback, so a wrong router
+  # address would be worse than none. Empty means llm.ChatJSON returns its own
+  # "OPENAI_BASE_URL is unset" at call time, which is a clear failure on the
+  # one agent that tried to use a model, not a boot failure on all nine.
+  # OPENAI_API_KEY is read by the OpenAI SDK itself, not by our code.
+  #
+  # OPENAI_MODEL is the third of the trio Nasiko injects. llm.resolveModel
+  # lets it override the per-agent Opt.Model, which matters only off Nasiko:
+  # the router ignores the body's model, but OpenAI honours it and would
+  # reject the router aliases the agents hardcode.
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+
+  # Written out rather than ${DATABASE_URL}, because the host .env points at
+  # localhost:5433 and inside a container that is the container's own loopback
+  # with nothing on it. 5432 is the port Postgres actually listens on; the 5433
+  # in docker-compose.yml is only the host-side mapping.
+  #
+  # Given to all nine rather than to the three that call db.Pool. Six of them
+  # never open a pool, so for those it is inert, and the alternative is three
+  # services carrying a forked copy of this map for one line. Stated plainly so
+  # nobody reads its presence as evidence that bp-briefer talks to Postgres.
+  DATABASE_URL: postgresql://brandpulse:brandpulse@postgres:5432/brandpulse
+
+x-agent: &agent
+  # service_healthy, not service_started. docker-compose.yml's healthcheck
+  # deliberately queries brand_profiles rather than running pg_isready, because
+  # pg_isready answers true while initdb is still replaying db/migrations. An
+  # agent started on service_started would call db.Pool against a database with
+  # no tables.
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+  environment: *agent-env
+  # No healthcheck on the agents. /healthz exists in internal/a2a for curl from
+  # the host, but the run stage is distroless static: no shell, no curl, and
+  # nothing in the image that can probe a socket. A healthcheck here would have
+  # to be a lie.
+
+# Every build context is the repo root, never the agent directory. Each agent's
+# Dockerfile header states this and its COPY lines prove it: they copy go.mod,
+# go.sum and the whole of internal/, none of which an agents/<name>/ context
+# can see.
+services:
+  bp-orchestrator:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-orchestrator/Dockerfile
+    ports:
+      # The only agent on the host. Same number on both sides so there is one
+      # port to remember for this agent rather than two: 8000 is already what
+      # a2a.Serve falls back to, what EXPOSE says and what the card's url
+      # advertises. The BFF's 8080 is a different service and does not collide.
+      #
+      # Bound to 127.0.0.1 for the reason docker-compose.yml gives for
+      # Postgres: this endpoint runs a pipeline against a shared database and
+      # authenticates nobody locally, so 0.0.0.0 would hand it to the rest of
+      # the wifi.
+      - "127.0.0.1:8000:8000"
+
+  bp-onboarder:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-onboarder/Dockerfile
+    environment:
+      <<: *agent-env
+      # Never read in replay: internal/anakin only demands a key for record and
+      # live. Passed so a deliberate BP_FIXTURE_MODE=record run needs no edit
+      # to this file, and passed to these two services only, because the other
+      # seven construct no anakin client and a credential should not travel
+      # further than the code that reads it.
+      ANAKIN_API_KEY: ${ANAKIN_API_KEY:-}
+    volumes:
+      # /app, not /, because this agent's run stage sets WORKDIR /app so the
+      # binary and AgentCard.json sit together. internal/anakin defaults
+      # Config.FixtureDir to the relative path "fixtures", resolved against the
+      # process working directory, so the corpus has to land there.
+      #
+      # Bind-mounted rather than COPYed into the image so B2's recording
+      # session is a file write on the host, not nine rebuilds. Read-only
+      # because a container that can write here can corrupt the corpus every
+      # other track's tests replay from.
+      - ./fixtures:/app/fixtures:ro
+
+  bp-collector:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-collector/Dockerfile
+    environment:
+      <<: *agent-env
+      ANAKIN_API_KEY: ${ANAKIN_API_KEY:-}
+    volumes:
+      # WORKDIR /app here too. The five agents whose Dockerfile leaves WORKDIR
+      # at / get no mount at all, because none of them builds an anakin client.
+      - ./fixtures:/app/fixtures:ro
+
+  bp-enricher:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-enricher/Dockerfile
+
+  bp-clusterer:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-clusterer/Dockerfile
+
+  bp-detector:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-detector/Dockerfile
+
+  bp-responder:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-responder/Dockerfile
+
+  bp-briefer:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-briefer/Dockerfile
+
+  bp-sov:
+    <<: *agent
+    build:
+      context: .
+      dockerfile: agents/bp-sov/Dockerfile
