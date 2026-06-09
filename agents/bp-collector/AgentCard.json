@@ -10,7 +10,7 @@
     {
       "url": "http://bp-collector:8000/",
       "protocolVersion": "1.0",
-      "preferredTransport": "JSONRPC"
+      "protocolBinding": "JSONRPC"
     }
   ],
   "capabilities": {
@@ -18,21 +18,43 @@
     "pushNotifications": false,
     "stateTransitionHistory": false
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
       "id": "collect_source",
       "name": "Collect one source",
       "description": "Runs one source's Anakin adapter over a half-open window, drops mentions the brand already has, and returns a MentionBatch with the credits it spent. Stops at max_credits and marks the batch truncated rather than overspending.",
-      "tags": ["collection", "anakin", "mentions", "reddit", "youtube", "news", "web", "appstore", "playstore"],
+      "tags": [
+        "collection",
+        "anakin",
+        "mentions",
+        "reddit",
+        "youtube",
+        "news",
+        "web",
+        "appstore",
+        "playstore"
+      ],
       "examples": [
         "Collect reddit mentions for boat-lifestyle between 2026-09-06 and 2026-09-20 within 40 credits."
       ],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"]
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ]
     }
   ],
   "llm_provider": null,
-  "tags": ["brandpulse", "collection", "deterministic"]
+  "tags": [
+    "brandpulse",
+    "collection",
+    "deterministic"
+  ]
 }

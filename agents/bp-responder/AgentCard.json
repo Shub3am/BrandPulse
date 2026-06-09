@@ -9,7 +9,7 @@
     {
       "url": "http://bp-responder:8000/",
       "protocolVersion": "1.0",
-      "preferredTransport": "JSONRPC"
+      "protocolBinding": "JSONRPC"
     }
   ],
   "capabilities": {
@@ -17,16 +17,28 @@
     "pushNotifications": false,
     "stateTransitionHistory": false
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
       "id": "draft_reply",
       "name": "Draft a reply",
       "description": "Takes a RespondInput carrying exactly one of an alert or a mention, plus the brand profile and target channel, and returns a ReplyDraft. The draft is checked against the global guardrail list and the brand's own DoNotSay before it is returned; a banned phrase is regenerated once, then stripped with a note in Tone.",
-      "tags": ["drafting", "guardrails", "human-in-the-loop"],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"],
+      "tags": [
+        "drafting",
+        "guardrails",
+        "human-in-the-loop"
+      ],
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
       "examples": [
         "Draft a holding statement for the crisis alert on X, for the statement channel.",
         "Draft a WhatsApp reply to this customer whose order never arrived."

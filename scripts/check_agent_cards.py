@@ -36,6 +36,35 @@ NASIKO_REQUIRED_TOP_LEVEL = (
 # VersionNotSupported.
 REQUIRED_PROTOCOL_VERSION = "1.0"
 
+# Inside supportedInterfaces[] the transport key is NOT the top level's
+# preferredTransport. a2a-go v2.5.0's AgentInterface names it protocolBinding
+# (a2a/agent.go:130), and a2a.Serve refuses to start when no interface declares
+# the JSONRPC binding, because JSONRPC is the only transport it mounts. An
+# interface carrying preferredTransport instead unmarshals to an empty binding
+# and every agent dies in a restart loop. This check exists because all nine
+# cards shipped exactly that and passed the rest of this script.
+REQUIRED_PROTOCOL_BINDING = "JSONRPC"
+
+
+def interface_problems(interfaces: object) -> list[str]:
+    """Return one sentence per thing wrong with a card's supportedInterfaces."""
+    if not isinstance(interfaces, list) or not interfaces:
+        return ["supportedInterfaces is empty, so a2a.Serve has no transport to mount"]
+
+    for index, interface in enumerate(interfaces):
+        if not isinstance(interface, dict):
+            return [f"supportedInterfaces[{index}] is not an object"]
+        if interface.get("protocolBinding") == REQUIRED_PROTOCOL_BINDING:
+            return []
+
+    bindings = [interface.get("protocolBinding") for interface in interfaces]
+    return [
+        f"no interface declares protocolBinding {REQUIRED_PROTOCOL_BINDING!r}, "
+        f"which is the only transport a2a.Serve mounts, so the agent refuses to "
+        f"start. Found {bindings!r}. Note the key inside the array is "
+        f"protocolBinding, not the top level's preferredTransport."
+    ]
+
 
 def problems_with(card: dict) -> list[str]:
     """Return one human sentence per thing wrong with a parsed AgentCard."""
@@ -52,6 +81,8 @@ def problems_with(card: dict) -> list[str]:
             "no supportedInterfaces[], so an A2A 1.0 consumer cannot see this "
             "agent's transport. Add it, keep the top-level fields too."
         )
+    else:
+        problems.extend(interface_problems(card["supportedInterfaces"]))
 
     # Both of these keys are in the tuple above, so the value checks only run
     # once the key is present. One defect should cost one CI annotation.

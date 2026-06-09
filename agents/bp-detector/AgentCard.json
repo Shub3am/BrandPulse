@@ -9,7 +9,7 @@
     {
       "url": "http://bp-detector:8000/",
       "protocolVersion": "1.0",
-      "preferredTransport": "JSONRPC"
+      "protocolBinding": "JSONRPC"
     }
   ],
   "llm_provider": null,
@@ -18,16 +18,28 @@
     "pushNotifications": false,
     "stateTransitionHistory": false
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
       "id": "detect_alerts",
       "name": "Detect alerts",
       "description": "Takes a DetectInput of enriched mentions plus 14-day baseline statistics and returns an AlertSet. Deterministic: the same input always produces the same alerts and the same dedupe keys.",
-      "tags": ["alerting", "statistics", "deterministic"],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"],
+      "tags": [
+        "alerting",
+        "statistics",
+        "deterministic"
+      ],
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
       "examples": [
         "Detect alerts for brand brd_01J9 over the last 24 hours against its 14-day baseline.",
         "Check whether the current hour's Twitter volume and negative share cross the crisis thresholds."
