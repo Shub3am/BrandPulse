@@ -28,10 +28,20 @@ export function AlertFeed({ brandId, initial }: { brandId: string; initial: Aler
   /** Alert id to the browser's own ISO timestamp for when it arrived. */
   const [receipts, setReceipts] = useState<Record<string, string>>({});
   const [pollError, setPollError] = useState<string | null>(null);
-  const [watchingSince] = useState(() => new Date().toISOString());
+  /** When this browser started watching. Null until it has, see below. */
+  const [watchingSince, setWatchingSince] = useState<string | null>(null);
 
   // A ref, not state: the poll reads it and writing it must not restart the loop.
   const sinceRef = useRef<string | undefined>(newestCreatedAt(initial));
+
+  // Set after mount rather than at first render. This is the browser's clock and
+  // the server renders with its own, so a value present during hydration is a
+  // mismatch on every single load, and React answers one by throwing away the
+  // subtree. Nothing stands in for it in the meantime: the feed has not started
+  // watching until this component is alive in a browser.
+  useEffect(() => {
+    setWatchingSince(new Date().toISOString());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,16 +93,19 @@ export function AlertFeed({ brandId, initial }: { brandId: string; initial: Aler
           <i className="dot" style={{ background: pollError ? "var(--warn)" : "var(--accent)" }} />
           {pollError ? "feed stalled" : "watching live"}
         </span>
-        <span className="note">
-          since {clockTime(watchingSince)} IST, every {POLL_INTERVAL_MS / 1000}s
-        </span>
+        {watchingSince && (
+          <span className="note">
+            since {clockTime(watchingSince)} IST, every {POLL_INTERVAL_MS / 1000}s
+          </span>
+        )}
         {pollError && <span className="note push-right">last poll failed: {pollError}</span>}
       </div>
 
       {alerts.length === 0 ? (
         <p className="empty">
-          No alerts for {brandId}. This feed has been watching since {clockTime(watchingSince)} IST
-          and has seen nothing fire, which is the good outcome.
+          No alerts for {brandId}. This feed has seen nothing fire, which is the good
+          outcome.
+          {watchingSince && ` It has been watching since ${clockTime(watchingSince)} IST.`}
         </p>
       ) : (
         alerts.map((alert) => (
