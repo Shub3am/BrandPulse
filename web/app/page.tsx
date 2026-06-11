@@ -18,17 +18,14 @@ import { PlatformPanel } from "@/components/PlatformPanel";
 import { RunNotice } from "@/components/RunNotice";
 import { StatRow } from "@/components/StatRow";
 import { TopicList } from "@/components/TopicList";
+import { brandId } from "@/lib/brand";
 import { fetchPulse } from "@/lib/pulse";
-
-// One brand per deployment until there is a route segment for it. The BFF is
-// per-brand on every route, so this is the only place the choice is made.
-const BRAND_ID = process.env.BRAND_ID ?? "lumeo";
 
 /** Every paint is a fresh read. A cached crisis from an hour ago is not news. */
 export const dynamic = "force-dynamic";
 
 export default async function PulsePage() {
-  const { answeredBy, data: pulse } = await fetchPulse(BRAND_ID);
+  const { answeredBy, data: pulse } = await fetchPulse(brandId());
   const { profile, brief, run, drafts } = pulse;
   const draft = drafts[0];
 
