@@ -26,6 +26,9 @@ const SEND_MESSAGE = "SendMessage";
 const ROLE_USER = "ROLE_USER";
 const TASK_STATE_FAILED = "TASK_STATE_FAILED";
 
+/** How far down an error's cause chain the message is allowed to grow. */
+const MAX_CAUSE_DEPTH = 4;
+
 /** What a route is allowed to depend on. The test stub implements this too. */
 export interface Orchestrator {
   startRun(input: RunRequest): Promise<RunRecord>;
@@ -187,5 +190,24 @@ function statusText(task: JsonRpcTask): string | undefined {
 }
 
 function describe(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  const chain: string[] = [];
+  collectMessages(cause, chain);
+  return chain.length > 0 ? chain.join(": ") : String(cause);
+}
+
+/**
+ * Node's fetch rejects with a bare "fetch failed" and puts the only part worth
+ * printing, the ECONNREFUSED and the port, in `error.cause`. A host that
+ * resolves to both an IPv4 and an IPv6 address rejects with an AggregateError
+ * instead, whose own message is empty and whose `errors` hold one per attempt.
+ * Without walking both the dashboard is told "unreachable" and not which port.
+ */
+function collectMessages(error: unknown, into: string[]): void {
+  if (into.length >= MAX_CAUSE_DEPTH || !(error instanceof Error)) return;
+  if (error.message && !into.includes(error.message)) into.push(error.message);
+  if (error instanceof AggregateError) {
+    for (const attempt of error.errors) collectMessages(attempt, into);
+    return;
+  }
+  collectMessages(error.cause, into);
 }
