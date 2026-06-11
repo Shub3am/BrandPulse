@@ -7,6 +7,8 @@
 // fetch.
 
 import type { Metadata } from "next";
+import { RunNowButton } from "@/components/RunNowButton";
+import { brandId } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +17,11 @@ export const metadata: Metadata = {
 };
 
 const NAV = ["Pulse", "Mentions", "Topics", "Alerts", "Replies", "Cost"];
+
+// Pulse is this page. The other five name sections of the product that have no
+// screen yet, so they are labels rather than links: an anchor to "#" is an
+// invitation to click something that cannot happen.
+const NO_SCREEN_YET = "Not built yet. Everything the dashboard has is on this screen.";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -26,14 +33,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               Brand<span>Pulse</span>
             </div>
             <nav className="topbar-nav">
-              {NAV.map((item, i) => (
-                <a key={item} href="#">
-                  {i === 0 ? <b>{item}</b> : item}
-                </a>
-              ))}
+              {NAV.map((item, i) =>
+                i === 0 ? (
+                  <b key={item} aria-current="page">
+                    {item}
+                  </b>
+                ) : (
+                  <span key={item} className="nav-unbuilt" title={NO_SCREEN_YET}>
+                    {item}
+                  </span>
+                ),
+              )}
             </nav>
             <div className="spacer" />
-            <button className="btn btn-primary">Run now</button>
+            <RunNowButton brandId={brandId()} />
           </div>
         </header>
         <main className="shell">{children}</main>
