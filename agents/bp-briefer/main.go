@@ -50,6 +50,11 @@ const (
 
 	periodDaily  = "daily"
 	periodWeekly = "weekly"
+
+	// cardPath is where the Dockerfile puts AgentCard.json. Building a Card
+	// literal here instead would skip every field the file carries, including
+	// supportedInterfaces, and a2a.Serve refuses a card without one.
+	cardPath = "/AgentCard.json"
 )
 
 // BrieferHandler holds the model call as a dependency rather than calling
@@ -270,8 +275,13 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
+	card, err := a2a.LoadCard(cardPath)
+	if err != nil {
+		log.Fatalf("bp-briefer: load agent card: %v", err)
+	}
+
 	handler := NewBrieferHandler(llm.ChatJSON)
-	if err := a2a.Serve(a2a.Card{Name: "bp-briefer"}, handler); err != nil {
+	if err := a2a.Serve(card, handler); err != nil {
 		log.Fatalf("bp-briefer: %v", err)
 	}
 }

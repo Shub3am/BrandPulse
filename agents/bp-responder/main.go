@@ -40,6 +40,11 @@ const (
 	// strippedToneNote is appended to Tone when a phrase had to be cut, so the
 	// human editing the draft knows a sentence may read oddly and why.
 	strippedToneNote = "guardrail phrase removed, re-read before sending"
+
+	// cardPath is where the Dockerfile puts AgentCard.json. Building a Card
+	// literal here instead would skip every field the file carries, including
+	// supportedInterfaces, and a2a.Serve refuses a card without one.
+	cardPath = "/AgentCard.json"
 )
 
 // The three reply shapes. Which one applies is decided from the input, because
@@ -283,8 +288,13 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
+	card, err := a2a.LoadCard(cardPath)
+	if err != nil {
+		log.Fatalf("bp-responder: load agent card: %v", err)
+	}
+
 	handler := NewResponderHandler(llm.ChatJSON)
-	if err := a2a.Serve(a2a.Card{Name: "bp-responder"}, handler); err != nil {
+	if err := a2a.Serve(card, handler); err != nil {
 		log.Fatalf("bp-responder: %v", err)
 	}
 }

@@ -19,6 +19,11 @@ import (
 	"brandpulse/internal/obs"
 )
 
+// cardPath is where the Dockerfile puts AgentCard.json. Building a Card literal
+// here instead would skip every field the file carries, including
+// supportedInterfaces, and a2a.Serve refuses a card without one.
+const cardPath = "/AgentCard.json"
+
 func main() {
 	shutdown, err := obs.Setup("bp-orchestrator")
 	if err != nil {
@@ -32,8 +37,13 @@ func main() {
 	}
 	defer db.Close()
 
+	card, err := a2a.LoadCard(cardPath)
+	if err != nil {
+		log.Fatalf("bp-orchestrator: load agent card: %v", err)
+	}
+
 	handler := NewOrchestratorHandler(NewPostgresStore(pool))
-	if err := a2a.Serve(a2a.Card{Name: "bp-orchestrator"}, handler); err != nil {
+	if err := a2a.Serve(card, handler); err != nil {
 		log.Fatalf("bp-orchestrator: %v", err)
 	}
 }

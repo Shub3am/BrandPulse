@@ -18,6 +18,11 @@ import (
 	"brandpulse/internal/obs"
 )
 
+// cardPath is where the Dockerfile puts AgentCard.json. Building a Card literal
+// here instead would skip every field the file carries, including
+// supportedInterfaces, and a2a.Serve refuses a card without one.
+const cardPath = "/AgentCard.json"
+
 // DetectorHandler has no fields because the detector has no dependencies.
 type DetectorHandler struct{}
 
@@ -38,7 +43,12 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	if err := a2a.Serve(a2a.Card{Name: "bp-detector"}, DetectorHandler{}); err != nil {
+	card, err := a2a.LoadCard(cardPath)
+	if err != nil {
+		log.Fatalf("bp-detector: load agent card: %v", err)
+	}
+
+	if err := a2a.Serve(card, DetectorHandler{}); err != nil {
 		log.Fatalf("bp-detector: %v", err)
 	}
 }
