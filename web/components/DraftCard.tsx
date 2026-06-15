@@ -5,6 +5,10 @@
 
 import type { ReplyDraft } from "@/lib/types";
 
+// None of the three has a route in the BFF, so all three are disabled and say
+// why. An enabled button that does nothing is a worse claim than a disabled one.
+const NO_ROUTE = "Not wired up yet. The BFF has no route behind this action.";
+
 export function DraftCard({ draft }: { draft: ReplyDraft }) {
   return (
     <div className="card">
@@ -22,9 +26,15 @@ export function DraftCard({ draft }: { draft: ReplyDraft }) {
       </div>
 
       <div className="draft-actions">
-        <button className="btn btn-primary">Approve</button>
-        <button className="btn">Edit</button>
-        <button className="btn">Reject</button>
+        <button className="btn btn-primary" disabled title={NO_ROUTE}>
+          Approve
+        </button>
+        <button className="btn" disabled title={NO_ROUTE}>
+          Edit
+        </button>
+        <button className="btn" disabled title={NO_ROUTE}>
+          Reject
+        </button>
       </div>
 
       {draft.requires_human_approval && (

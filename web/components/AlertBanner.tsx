@@ -12,6 +12,10 @@
 import type { Alert } from "@/lib/types";
 import { clockTime, durationBetween, humanLabel } from "@/lib/format";
 
+// Neither action has a route in the BFF, so both are disabled and say why. An
+// enabled button that does nothing is a worse claim than a disabled one.
+const NO_ROUTE = "Not wired up yet. The BFF has no route behind this action.";
+
 export function AlertBanner({ alert, receivedAt }: { alert: Alert; receivedAt?: string }) {
   const timeToScreen = durationBetween(alert.created_at, receivedAt);
   return (
@@ -49,8 +53,12 @@ export function AlertBanner({ alert, receivedAt }: { alert: Alert; receivedAt?: 
       </div>
 
       <div className="draft-actions">
-        <button className="btn btn-primary">Open suggested reply</button>
-        <button className="btn">Acknowledge</button>
+        <button className="btn btn-primary" disabled title={NO_ROUTE}>
+          Open suggested reply
+        </button>
+        <button className="btn" disabled title={NO_ROUTE}>
+          Acknowledge
+        </button>
         <span className="mono note push-right">dedupe_key {alert.dedupe_key}</span>
       </div>
     </div>
