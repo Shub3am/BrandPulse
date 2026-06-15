@@ -33,6 +33,9 @@ than rendering one server-side snapshot.
 | `app/layout.tsx` | Document shell and top bar. Holds no product state and no label. |
 | `components/DataSourceBadge.tsx` | Says what the data is, derived from the payload. |
 | `app/api/alerts/route.ts` | Proxies the alert poll so the browser never learns the BFF's URL. |
+| `app/api/runs/route.ts` | Proxies the on-demand run start, for the same reason. |
+| `components/RunNowButton.tsx` | The top bar's one action. Starts a run and reports the failure. |
+| `lib/brand.ts` | Which brand this deployment monitors. Throws when nothing says. |
 | `app/loading.tsx` | Panel frames while the fetch is in flight. Holds no values. |
 | `app/error.tsx` | Says the backend is unreachable. Substitutes nothing. |
 | `lib/pulse.ts` | The BFF fetches. The only file here that knows the backend exists. |
@@ -67,7 +70,13 @@ than rendering one server-side snapshot.
   `BFF_BASE_URL` has no `NEXT_PUBLIC_` prefix, on purpose: a `NEXT_PUBLIC_` var
   is inlined when the image is built, and the BFF's URL is only known at deploy
   time. That is why the live feed polls `app/api/alerts/route.ts` instead of the
-  BFF directly. The route adds no field and filters nothing.
+  BFF directly. The route adds no field and filters nothing, and
+  `app/api/runs/route.ts` exists for the same reason on the write side.
+- **A missing `BRAND_ID` throws, it does not default.** `lib/brand.ts` is the one
+  place the choice is made, because the page and the top bar have to reach the
+  same answer. A default brand id is a brand with no row in Postgres, and this
+  dashboard renders an unknown brand as empty panels, which reads as a quiet day
+  rather than as a misconfiguration.
 - **An empty panel is a sentence, never a blank box or a zero.** Every panel has
   a written empty state naming what is missing and which agent fills it. Zero
   alerts is a success state and says so, with the window it has been watching.
@@ -81,6 +90,19 @@ than rendering one server-side snapshot.
   healthy run too: a notice that appears only on failure teaches a reader to
   treat its absence as proof, and absence is also what a missing field looks
   like.
+- **A browser clock is read after mount, never during render.** The server and
+  the browser render at different moments, so a `new Date()` in a client
+  component's first render is a hydration mismatch on every load and React
+  answers one by throwing the subtree away. `AlertFeed`'s "watching since" is set
+  in a mount effect and the sentence that carries it is absent until it exists,
+  which is also the honest reading: the feed has not started watching until it is
+  alive in a browser. Nothing stands in for it in the meantime.
+- **Every button either does something or says it cannot.** The dashboard has one
+  working action, Run now, and it reports its own failure on screen rather than
+  in a console nobody has open. The draft and alert actions have no route in the
+  BFF, so they are `disabled` with a `title` saying so, and the five unbuilt nav
+  sections are labels rather than anchors to `#`. Wiring one of them up means
+  adding the BFF route first; do not add a handler that pretends.
 - **Only the browser may date an alert's arrival.** `AlertFeed` records its own
   receipt timestamp when a poll brings in an alert it has not seen, and
   `AlertBanner` prints a duration only when that receipt exists and is later
