@@ -19,11 +19,12 @@ import (
 
 	"brandpulse/internal/anakin"
 	"brandpulse/internal/anakin/sources/mentions"
+	"brandpulse/internal/anakin/sources/wire"
 	"brandpulse/internal/models"
 )
 
-// searchResponse is the rt_search payload, after internal/anakin has stripped
-// the Wire job envelope.
+// searchResponse is the rt_search payload, two data hops inside the job
+// envelope that wire.Payload strips.
 type searchResponse struct {
 	Query string `json:"query"`
 	Posts []post `json:"posts"`
@@ -91,8 +92,14 @@ func Fetch(ctx context.Context, c anakin.Client, p models.BrandProfile, start, e
 			continue
 		}
 
+		payload, err := wire.Payload(raw)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("reddit: rt_search %q: %w", keyword, err))
+			continue
+		}
+
 		var resp searchResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
+		if err := json.Unmarshal(payload, &resp); err != nil {
 			problems = append(problems, fmt.Errorf("reddit: decoding rt_search %q: %w", keyword, err))
 			continue
 		}

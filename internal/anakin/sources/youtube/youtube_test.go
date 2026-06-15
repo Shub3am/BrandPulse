@@ -39,6 +39,16 @@ const (
 
 var reference = time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 
+// wireResponse wraps a payload in the job envelope every Wire response arrives
+// in, so a stubbed response has the same shape as a recorded one. Handing the
+// adapter a bare payload is what these tests used to do, and it is why the
+// recorded yt_search failed to decode in a way no test caught.
+func wireResponse(action, payload string) json.RawMessage {
+	return json.RawMessage(`{"credits_used":1,"execution_ms":5120,"status":"completed",` +
+		`"data":{"status":"ok","error":null,"files":[],"data":` + payload + `,` +
+		`"meta":{"action_id":"` + action + `","catalog_slug":"youtube","envelope_version":"v1"}}}`)
+}
+
 func decodeComment(t *testing.T) comment {
 	t.Helper()
 	var cm comment
@@ -189,9 +199,9 @@ func wireStub() *sourcestest.Client {
 	return &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
 			if opt.Action == "yt_search" {
-				return json.RawMessage(liveSearch), nil
+				return wireResponse("yt_search", liveSearch), nil
 			}
-			return json.RawMessage(`{"video_id":"zLXOfWalsMk","count":1,"comments_count":20,"data":[` + liveComment + `]}`), nil
+			return wireResponse("yt_comments", `{"video_id":"zLXOfWalsMk","count":1,"comments_count":20,"data":[`+liveComment+`]}`), nil
 		},
 	}
 }
@@ -230,9 +240,9 @@ func TestFetchCapsCommentCallsPerQuery(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
 			if opt.Action == "yt_search" {
-				return json.RawMessage(manyVideos), nil
+				return wireResponse("yt_search", manyVideos), nil
 			}
-			return json.RawMessage(`{"video_id":"a","count":0,"data":[]}`), nil
+			return wireResponse("yt_comments", `{"video_id":"a","count":0,"data":[]}`), nil
 		},
 	}
 
@@ -255,7 +265,7 @@ func TestFetchStopsAtTheBudgetCeiling(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
 			if opt.Action == "yt_search" {
-				return json.RawMessage(liveSearch), nil
+				return wireResponse("yt_search", liveSearch), nil
 			}
 			return nil, anakin.ErrBudgetExceeded
 		},
@@ -276,9 +286,9 @@ func TestFetchSurfacesAnUnparseableTimestamp(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
 			if opt.Action == "yt_search" {
-				return json.RawMessage(liveSearch), nil
+				return wireResponse("yt_search", liveSearch), nil
 			}
-			return json.RawMessage(`{"video_id":"zLXOfWalsMk","count":1,"data":[
+			return wireResponse("yt_comments", `{"video_id":"zLXOfWalsMk","count":1,"data":[
               {"comment_id":"x","author":"@y","text":"hi","likes":"0","published":"yesterday","reply_count":0}]}`), nil
 		},
 	}
@@ -295,7 +305,7 @@ func TestFetchSurfacesAnUnparseableTimestamp(t *testing.T) {
 func TestFetchSurfacesADecodeFailure(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"data":"not an array"}`), nil
+			return wireResponse("yt_search", `{"data":"not an array"}`), nil
 		},
 	}
 

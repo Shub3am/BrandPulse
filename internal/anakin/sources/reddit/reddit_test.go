@@ -34,6 +34,17 @@ const livePost = `{
   "thumbnail":null,"is_video":null,"over_18":null,"link_flair_text":null
 }`
 
+// wireResponse wraps an rt_search payload in the job envelope every Wire
+// response arrives in, so a stubbed response has the same shape as a recorded
+// one. A test that hands the adapter a bare payload proves nothing: the bare
+// payload is what the adapter used to expect, and it is why the recording came
+// back with zero mentions.
+func wireResponse(payload string) json.RawMessage {
+	return json.RawMessage(`{"credits_used":2,"execution_ms":3723,"status":"completed",` +
+		`"data":{"status":"ok","error":null,"files":[],"data":` + payload + `,` +
+		`"meta":{"action_id":"rt_search","catalog_slug":"reddit","envelope_version":"v1"}}}`)
+}
+
 func decodePost(t *testing.T) post {
 	t.Helper()
 	var p post
@@ -190,7 +201,7 @@ var (
 func TestFetchIssuesOneSearchPerKeyword(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"posts":[` + livePost + `],"post_count":1}`), nil
+			return wireResponse(`{"posts":[` + livePost + `],"post_count":1}`), nil
 		},
 	}
 
@@ -224,7 +235,7 @@ func TestFetchIssuesOneSearchPerKeyword(t *testing.T) {
 func TestFetchReportsTheSilentZero(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"posts":[],"post_count":0,"posts_dropped_by_filter":22,"error":null}`), nil
+			return wireResponse(`{"posts":[],"post_count":0,"posts_dropped_by_filter":22,"error":null}`), nil
 		},
 	}
 
@@ -245,7 +256,7 @@ func TestFetchReportsTheSilentZero(t *testing.T) {
 func TestFetchIsSilentOnAGenuinelyEmptyResult(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"posts":[],"post_count":0,"posts_dropped_by_filter":0,"error":null}`), nil
+			return wireResponse(`{"posts":[],"post_count":0,"posts_dropped_by_filter":0,"error":null}`), nil
 		},
 	}
 
@@ -262,7 +273,7 @@ func TestFetchStopsAtTheBudgetCeiling(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
 			if query == "boAt Airdopes" {
-				return json.RawMessage(`{"posts":[],"post_count":0}`), nil
+				return wireResponse(`{"posts":[],"post_count":0}`), nil
 			}
 			return nil, fmt.Errorf("reddit: %w", anakin.ErrBudgetExceeded)
 		},
@@ -285,7 +296,7 @@ func TestFetchContinuesPastOneFailedQuery(t *testing.T) {
 			if query == "boAt Rockerz" {
 				return nil, errors.New("upstream 502")
 			}
-			return json.RawMessage(`{"posts":[],"post_count":0}`), nil
+			return wireResponse(`{"posts":[],"post_count":0}`), nil
 		},
 	}
 
@@ -301,7 +312,7 @@ func TestFetchContinuesPastOneFailedQuery(t *testing.T) {
 func TestFetchSurfacesADecodeFailure(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"posts":"not an array"}`), nil
+			return wireResponse(`{"posts":"not an array"}`), nil
 		},
 	}
 
@@ -313,7 +324,7 @@ func TestFetchSurfacesADecodeFailure(t *testing.T) {
 func TestFetchDropsPostsOutsideTheWindow(t *testing.T) {
 	client := &sourcestest.Client{
 		WireFunc: func(ctx context.Context, platform, query string, opt anakin.WireOpt) (json.RawMessage, error) {
-			return json.RawMessage(`{"posts":[` + livePost + `],"post_count":1}`), nil
+			return wireResponse(`{"posts":[` + livePost + `],"post_count":1}`), nil
 		},
 	}
 

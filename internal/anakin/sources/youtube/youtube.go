@@ -24,6 +24,7 @@ import (
 
 	"brandpulse/internal/anakin"
 	"brandpulse/internal/anakin/sources/mentions"
+	"brandpulse/internal/anakin/sources/wire"
 	"brandpulse/internal/models"
 )
 
@@ -39,8 +40,11 @@ const commentVideosPerQuery = 2
 // 50 and the cost does not vary with it, so there is no reason to ask for less.
 const commentLimit = 50
 
-// searchResponse is the yt_search payload, after internal/anakin has stripped
-// the Wire job envelope.
+// searchResponse is the yt_search payload, two data hops inside the job
+// envelope that wire.Payload strips.
+//
+// The payload key for the video array really is "data", so the array sits three
+// data hops down from the poll response root.
 type searchResponse struct {
 	Query  string  `json:"query"`
 	Count  int     `json:"count"`
@@ -103,8 +107,14 @@ func Fetch(ctx context.Context, c anakin.Client, p models.BrandProfile, start, e
 			continue
 		}
 
+		payload, err := wire.Payload(raw)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("youtube: yt_search %q: %w", keyword, err))
+			continue
+		}
+
 		var search searchResponse
-		if err := json.Unmarshal(raw, &search); err != nil {
+		if err := json.Unmarshal(payload, &search); err != nil {
 			problems = append(problems, fmt.Errorf("youtube: decoding yt_search %q: %w", keyword, err))
 			continue
 		}
@@ -142,8 +152,13 @@ func commentsFor(ctx context.Context, c anakin.Client, v video, keyword string, 
 		return nil, nil, []error{fmt.Errorf("youtube: yt_comments %s: %w", v.VideoID, err)}
 	}
 
+	payload, err := wire.Payload(raw)
+	if err != nil {
+		return nil, nil, []error{fmt.Errorf("youtube: yt_comments %s: %w", v.VideoID, err)}
+	}
+
 	var resp commentsResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	if err := json.Unmarshal(payload, &resp); err != nil {
 		return nil, nil, []error{fmt.Errorf("youtube: decoding yt_comments %s: %w", v.VideoID, err)}
 	}
 
