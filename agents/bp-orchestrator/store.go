@@ -397,12 +397,18 @@ func (s PostgresStore) SaveTopics(ctx context.Context, topics []models.Topic) er
 // SaveAlerts stores sample mention ids while the wire carries whole mentions.
 // That divergence is CONTRACTS §3b: DronaHQ renders an alert without a second
 // fetch, and the table does not duplicate the mentions it already holds.
-func (s PostgresStore) SaveAlerts(ctx context.Context, alerts []models.Alert) error {
+//
+// It returns the alerts carrying the ids the table ended up with, which is not
+// always the ids it was handed. See storedIDs.
+func (s PostgresStore) SaveAlerts(ctx context.Context, alerts []models.Alert) ([]models.Alert, error) {
+	if len(alerts) == 0 {
+		return nil, nil
+	}
 	batch := &pgx.Batch{}
 	for _, alert := range alerts {
 		evidence, err := jsonb(alert.Evidence)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		sampleIDs := make([]string, 0, len(alert.SampleMentions))
 		for _, mention := range alert.SampleMentions {
@@ -410,7 +416,7 @@ func (s PostgresStore) SaveAlerts(ctx context.Context, alerts []models.Alert) er
 		}
 		samples, err := jsonb(sampleIDs)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		batch.Queue(`
 			INSERT INTO alerts (id, brand_id, kind, severity, title, why, evidence,
@@ -421,7 +427,55 @@ func (s PostgresStore) SaveAlerts(ctx context.Context, alerts []models.Alert) er
 			alert.Title, alert.Why, evidence, samples, string(alert.Status),
 			alert.DedupeKey, alert.CreatedAt.UTC())
 	}
-	return s.pool.SendBatch(ctx, batch).Close()
+	if err := s.pool.SendBatch(ctx, batch).Close(); err != nil {
+		return nil, err
+	}
+	return s.storedIDs(ctx, alerts)
+}
+
+// storedIDs swaps each alert's id for the id of the row that actually holds its
+// dedupe key.
+//
+// bp-detector mints a fresh id every run while the dedupe key is stable for the
+// hour, so the second run in an hour loses the insert to ON CONFLICT DO NOTHING
+// and its id belongs to no row. A reply draft written against that id is
+// silently discarded by the foreign key guard in SaveDrafts, and a brief citing
+// it points the dashboard at nothing. One run covers one brand, so the lookup
+// keys off the brand the first alert names.
+func (s PostgresStore) storedIDs(ctx context.Context, alerts []models.Alert) ([]models.Alert, error) {
+	keys := make([]string, 0, len(alerts))
+	for _, alert := range alerts {
+		keys = append(keys, alert.DedupeKey)
+	}
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT dedupe_key, id FROM alerts WHERE brand_id = $1 AND dedupe_key = ANY($2)`,
+		alerts[0].BrandID, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	idByKey := make(map[string]string, len(alerts))
+	for rows.Next() {
+		var key, id string
+		if err := rows.Scan(&key, &id); err != nil {
+			return nil, err
+		}
+		idByKey[key] = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	stored := make([]models.Alert, 0, len(alerts))
+	for _, alert := range alerts {
+		if id, ok := idByKey[alert.DedupeKey]; ok {
+			alert.ID = id
+		}
+		stored = append(stored, alert)
+	}
+	return stored, nil
 }
 
 // SaveDrafts writes a draft only when its alert is in the table, for the same

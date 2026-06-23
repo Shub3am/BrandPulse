@@ -74,12 +74,16 @@ type fakeStore struct {
 	priorCount  int
 	priorTopics map[string]int
 
+	windowEnriched    []models.EnrichedMention
+	windowEnrichedErr error
+
 	runs map[string]models.RunRecord // keyed by brand|kind|bucket
 
 	savedMentions []models.Mention
 	savedEnrich   []models.Enrichment
 	savedTopics   []models.Topic
 	savedAlerts   []models.Alert
+	alertIDByKey  map[string]string // the alerts UNIQUE (brand_id, dedupe_key)
 	savedDrafts   []models.ReplyDraft
 	savedBriefs   []models.DailyBrief
 	savedYield    []sourceRun
@@ -93,6 +97,8 @@ func newFakeStore(profile models.BrandProfile) *fakeStore {
 		yields:      tenYields(),
 		priorTopics: map[string]int{},
 		runs:        map[string]models.RunRecord{},
+
+		alertIDByKey: map[string]string{},
 	}
 }
 
@@ -153,16 +159,56 @@ func (s *fakeStore) CountMentions(context.Context, string, time.Time, time.Time)
 	return s.priorCount, nil
 }
 
+// EnrichedInWindow joins what has actually been saved, on the same half-open
+// window and the same inner join as the query in store.go. A double that
+// returned a canned slice would let step 5b pass while reading nothing.
+func (s *fakeStore) EnrichedInWindow(_ context.Context, _ string, start, end time.Time) ([]models.EnrichedMention, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.windowEnrichedErr != nil {
+		return nil, s.windowEnrichedErr
+	}
+
+	enrichmentOf := make(map[string]models.Enrichment, len(s.savedEnrich))
+	for _, e := range s.savedEnrich {
+		enrichmentOf[e.MentionID] = e
+	}
+
+	var enriched []models.EnrichedMention
+	for _, mention := range s.savedMentions {
+		enrichment, ok := enrichmentOf[mention.ID]
+		if !ok || mention.PostedAt.Before(start) || !mention.PostedAt.Before(end) {
+			continue
+		}
+		enriched = append(enriched, models.EnrichedMention{Mention: mention, Enrichment: enrichment})
+	}
+	return enriched, nil
+}
+
 func (s *fakeStore) PriorWindowCounts(context.Context, string, time.Time, time.Time) (map[string]int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.priorTopics, nil
 }
 
+// SaveMentions reproduces mentions UNIQUE (brand_id, content_hash). Without it
+// a forced re-run stores the same mention twice here and once in Postgres, and
+// every count downstream of step 5b is tested against the wrong number.
 func (s *fakeStore) SaveMentions(_ context.Context, mentions []models.Mention) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.savedMentions = append(s.savedMentions, mentions...)
+
+	stored := make(map[string]bool, len(s.savedMentions))
+	for _, mention := range s.savedMentions {
+		stored[mention.ContentHash] = true
+	}
+	for _, mention := range mentions {
+		if stored[mention.ContentHash] {
+			continue
+		}
+		stored[mention.ContentHash] = true
+		s.savedMentions = append(s.savedMentions, mention)
+	}
 	return nil
 }
 
@@ -180,11 +226,24 @@ func (s *fakeStore) SaveTopics(_ context.Context, t []models.Topic) error {
 	return nil
 }
 
-func (s *fakeStore) SaveAlerts(_ context.Context, a []models.Alert) error {
+// SaveAlerts reproduces the dedupe conflict: an alert whose key is already in
+// the table is not inserted, and the id of the row already there is what comes
+// back.
+func (s *fakeStore) SaveAlerts(_ context.Context, a []models.Alert) ([]models.Alert, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.savedAlerts = append(s.savedAlerts, a...)
-	return nil
+
+	stored := make([]models.Alert, 0, len(a))
+	for _, alert := range a {
+		if existing, ok := s.alertIDByKey[alert.DedupeKey]; ok {
+			alert.ID = existing
+		} else {
+			s.alertIDByKey[alert.DedupeKey] = alert.ID
+			s.savedAlerts = append(s.savedAlerts, alert)
+		}
+		stored = append(stored, alert)
+	}
+	return stored, nil
 }
 
 func (s *fakeStore) SaveDrafts(_ context.Context, d []models.ReplyDraft) error {
@@ -280,7 +339,12 @@ func (p *stubPeers) Call(_ context.Context, agent string, in any, out any) error
 	case agentDetector:
 		*out.(*models.AlertSet) = p.alerts
 	case agentResponder:
-		*out.(*models.ReplyDraft) = p.draft
+		// bp-responder copies the id of the alert it was handed onto the
+		// draft, so the stub has to as well or the foreign key this pipeline
+		// depends on is never exercised.
+		draft := p.draft
+		draft.AlertID = in.(models.RespondInput).Alert.ID
+		*out.(*models.ReplyDraft) = draft
 	case agentBriefer:
 		*out.(*models.DailyBrief) = p.brief
 	default:
@@ -299,11 +363,15 @@ func newStubPeers() *stubPeers {
 
 // withMentions loads a source's stub answer and the matching enrichments, so a
 // test names a source once instead of wiring two peers by hand.
+//
+// Every mention is posted strictly inside the window. The window is half open
+// and ends at now, so a mention posted at exactly now is outside it and is not
+// a case any real collector produces.
 func (p *stubPeers) withMentions(source models.Source, count, credits int) *stubPeers {
 	batch := models.MentionBatch{Source: source, CreditsUsed: credits}
 	for i := 0; i < count; i++ {
 		id := fmt.Sprintf("mn_%s_%d", source, i)
-		batch.Mentions = append(batch.Mentions, testMention(source, id, testNow.Add(-time.Duration(i)*time.Minute)))
+		batch.Mentions = append(batch.Mentions, testMention(source, id, testNow.Add(-time.Duration(i+1)*time.Minute)))
 		p.enrichment.Enrichments = append(p.enrichment.Enrichments,
 			testEnrichment(id, models.SentimentNegative, -0.7))
 	}
@@ -531,6 +599,82 @@ func TestEverySourceFailingIsAFailedRun(t *testing.T) {
 	}
 }
 
+// A collector reports a dead source in its Errors rather than by returning one,
+// so a run where every source answered with nothing but errors has to read as
+// failed. Otherwise it is indistinguishable from the quiet window below.
+func TestSourcesThatAnswerWithOnlyErrorsAreAFailedRun(t *testing.T) {
+	sources := []models.Source{models.SourceX, models.SourceReddit}
+	store := newFakeStore(testProfile(sources...))
+	peers := newStubPeers()
+	for _, source := range sources {
+		peers.collect[source] = models.MentionBatch{
+			Source: source,
+			Errors: []string{fmt.Sprintf("no adapter is registered for source %q", source)},
+		}
+	}
+	handler := newTestHandler(store, peers)
+
+	run, err := handler.Handle(context.Background(), models.RunInput{BrandID: testBrandID, Trigger: models.RunScheduled})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if run.Status != models.RunStatusFailed {
+		t.Errorf("status is %q, want %q: every source answered and every answer was an error",
+			run.Status, models.RunStatusFailed)
+	}
+}
+
+// The other half of the pair. Nothing matched, nothing broke, and the run says
+// so with an empty Errors and a status of ok.
+func TestAQuietWindowIsAnOKRunAndNotAPartialOne(t *testing.T) {
+	sources := []models.Source{models.SourceX, models.SourceReddit}
+	store := newFakeStore(testProfile(sources...))
+	peers := newStubPeers()
+	for _, source := range sources {
+		peers.collect[source] = models.MentionBatch{Source: source}
+	}
+	handler := newTestHandler(store, peers)
+
+	run, err := handler.Handle(context.Background(), models.RunInput{BrandID: testBrandID, Trigger: models.RunScheduled})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if run.Status != models.RunStatusOK {
+		t.Errorf("status is %q, want %q: every source answered cleanly with nothing", run.Status, models.RunStatusOK)
+	}
+	if len(run.Errors) != 0 {
+		t.Errorf("errors are %v, want none: an empty window is not a failure", run.Errors)
+	}
+	if run.MentionsCollected != 0 {
+		t.Errorf("collected %d mentions, want 0", run.MentionsCollected)
+	}
+}
+
+// internal/anakin refuses to build a client with a ceiling of 0, so a budget
+// that divides to nothing is eight identical collector failures with one cause.
+// The cause has to be on the run.
+func TestABudgetThatDividesToNothingIsStatedOnTheRun(t *testing.T) {
+	store := newFakeStore(testProfile(models.SourceX, models.SourceReddit))
+	store.budget = 1 // one credit across two sources floors to zero
+	peers := newStubPeers().withMentions(models.SourceX, 2, 0).withMentions(models.SourceReddit, 1, 0)
+	handler := newTestHandler(store, peers)
+
+	run, err := handler.Handle(context.Background(), models.RunInput{BrandID: testBrandID, Trigger: models.RunScheduled})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	found := false
+	for _, e := range run.Errors {
+		if strings.Contains(e, "0 credits each") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("run errors are %v, want one naming the zero per-source ceiling", run.Errors)
+	}
+}
+
 // The flow guard fails closed, so a ninth concurrent call is a dropped call.
 // This test watches the peak, because the cap cannot be read off the code.
 func TestFanOutNeverExceedsTheCap(t *testing.T) {
@@ -680,6 +824,34 @@ func TestOnlyHighAndCriticalAlertsGetADraft(t *testing.T) {
 			t.Errorf("draft %q saved with status %q, want %q: nothing in this repo advances a draft",
 				draft.ID, draft.Status, models.DraftStatusDraft)
 		}
+	}
+}
+
+// bp-detector mints a fresh alert id every run while the dedupe key is stable
+// for the hour, so the second run of an hour loses its insert to alerts UNIQUE
+// (brand_id, dedupe_key). A draft written against the id it generated points at
+// no row, and reply_drafts.alert_id is a foreign key: the write is discarded
+// without an error. The draft has to carry the id the table actually holds.
+func TestADraftAttachesToTheAlertRowThatIsStored(t *testing.T) {
+	store := newFakeStore(testProfile(models.SourceX))
+	store.alertIDByKey["crisis:x:1"] = "alt_first" // the row an earlier run left
+
+	peers := newStubPeers().withMentions(models.SourceX, 3, 4)
+	peers.alerts.Alerts = []models.Alert{
+		models.NewAlert("alt_second", testBrandID, models.AlertCrisis, models.SeverityCritical, "crisis:x:1", testNow),
+	}
+	peers.draft = models.NewReplyDraft("rd_1", models.ChannelStatement)
+	handler := newTestHandler(store, peers)
+
+	if _, err := handler.Handle(context.Background(), models.RunInput{BrandID: testBrandID, Trigger: models.RunScheduled}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(store.savedDrafts) != 1 {
+		t.Fatalf("saved %d drafts, want 1", len(store.savedDrafts))
+	}
+	if got := store.savedDrafts[0].AlertID; got != "alt_first" {
+		t.Errorf("draft points at alert %q, want %q: alt_second lost the dedupe conflict and is in no row", got, "alt_first")
 	}
 }
 

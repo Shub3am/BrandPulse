@@ -96,7 +96,12 @@ type Store interface {
 	SaveMentions(ctx context.Context, mentions []models.Mention) error
 	SaveEnrichments(ctx context.Context, enrichments []models.Enrichment) error
 	SaveTopics(ctx context.Context, topics []models.Topic) error
-	SaveAlerts(ctx context.Context, alerts []models.Alert) error
+
+	// SaveAlerts returns the alerts as the table now holds them. An alert that
+	// lost the dedupe conflict keeps the id of the row already there, not the
+	// id this run generated, and everything downstream has to use that one.
+	SaveAlerts(ctx context.Context, alerts []models.Alert) ([]models.Alert, error)
+
 	SaveDrafts(ctx context.Context, drafts []models.ReplyDraft) error
 	SaveBrief(ctx context.Context, period string, brief models.DailyBrief) error
 }
@@ -289,11 +294,20 @@ func (h OrchestratorHandler) execute(ctx context.Context, in models.RunInput, pr
 
 	budget, err := h.Store.CreditBudget(ctx, in.BrandID)
 	if err != nil {
-		log.addf("credit budget unavailable, collectors ran with no per-source ceiling: %v", err)
+		log.addf("credit budget unavailable, every collector was given a ceiling of 0: %v", err)
+	}
+
+	// A ceiling of 0 is not "unlimited". internal/anakin refuses to build a
+	// client without one, so every collector fails at construction and the run
+	// collects nothing. Said here because the alternative is eight identical
+	// collector errors and no statement of the one cause behind them.
+	perSourceCredits := splitCredits(budget, len(chosen))
+	if len(chosen) > 0 && perSourceCredits == 0 {
+		log.addf("a daily budget of %d across %d sources leaves 0 credits each, which no collector can run on", budget, len(chosen))
 	}
 
 	// Step 4: collect in parallel, persist.
-	mentions, perSource, failed := h.collect(ctx, profile, chosen, w, run.ID, splitCredits(budget, len(chosen)), log, &total)
+	mentions, perSource, failed := h.collect(ctx, profile, chosen, w, run.ID, perSourceCredits, log, &total)
 	run.MentionsCollected = len(mentions)
 	if len(mentions) > 0 {
 		if err := h.Store.SaveMentions(ctx, mentions); err != nil {
@@ -396,6 +410,14 @@ func (h OrchestratorHandler) collect(
 			}
 			for _, e := range batch.Errors {
 				log.addf("%s(%s): %s", agentCollector, source, e)
+			}
+			// A collector reports a dead source by filling Errors, not by
+			// returning one, so a batch carrying errors and no mentions is the
+			// same failure as a transport error and has to count as one. Without
+			// this, eight broken sources and eight quiet ones both finish
+			// partial and an operator cannot tell them apart.
+			if len(batch.Errors) > 0 && len(batch.Mentions) == 0 {
+				failed++
 			}
 			if batch.Truncated {
 				log.addf("%s(%s): stopped at the credit ceiling of %d", agentCollector, source, perSourceCredits)
@@ -596,8 +618,15 @@ func (h OrchestratorHandler) analyse(
 		}
 	}
 	if len(alerts) > 0 {
-		if err := h.Store.SaveAlerts(ctx, alerts); err != nil {
+		// The returned set, not the one just sent: step 7 drafts against these
+		// ids and reply_drafts.alert_id is a foreign key, so a draft written
+		// against an id the dedupe conflict threw away is a draft the database
+		// drops without a word.
+		stored, err := h.Store.SaveAlerts(ctx, alerts)
+		if err != nil {
 			log.addf("persisting alerts: %v", err)
+		} else {
+			alerts = stored
 		}
 	}
 	return topics, sov, alerts
