@@ -43,6 +43,11 @@ const liveResponse = `{
 
 func testPrompt(keyword string) string { return keyword + " news" }
 
+// windowEnd is the end of the collection window every test here collects into.
+// It is a fixed instant rather than time.Now() because it is also the date an
+// undated result is given, and that has to be reproducible.
+var windowEnd = time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+
 func TestToDraftMapsLiveFields(t *testing.T) {
 	var resp response
 	if err := json.Unmarshal([]byte(liveResponse), &resp); err != nil {
@@ -55,7 +60,7 @@ func TestToDraftMapsLiveFields(t *testing.T) {
 		t.Fatalf("got %d results, want 3", len(resp.Results))
 	}
 
-	draft, err := ToDraft(resp.Results[0], models.SourceNews, "boAt")
+	draft, err := ToDraft(resp.Results[0], models.SourceNews, "boAt", UndatedAt(windowEnd))
 	if err != nil {
 		t.Fatalf("ToDraft: %v", err)
 	}
@@ -96,7 +101,7 @@ func TestToDraftMapsLiveFields(t *testing.T) {
 }
 
 func TestToDraftUsesSnippetAloneWhenTitleIsEmpty(t *testing.T) {
-	draft, err := ToDraft(Result{URL: "https://example.com/a", Snippet: "body only", Date: "2025-01-29"}, models.SourceWeb, "boAt")
+	draft, err := ToDraft(Result{URL: "https://example.com/a", Snippet: "body only", Date: "2025-01-29"}, models.SourceWeb, "boAt", UndatedAt(windowEnd))
 	if err != nil {
 		t.Fatalf("ToDraft: %v", err)
 	}
@@ -106,22 +111,24 @@ func TestToDraftUsesSnippetAloneWhenTitleIsEmpty(t *testing.T) {
 }
 
 func TestPublishedAt(t *testing.T) {
+	undated := UndatedAt(windowEnd)
 	cases := []struct {
-		name    string
-		result  Result
-		want    time.Time
-		wantErr bool
+		name          string
+		result        Result
+		want          time.Time
+		wantPrecision string
+		wantErr       bool
 	}{
-		{"date wins over last_updated", Result{Date: "2025-01-29", LastUpdated: "2025-03-01"}, time.Date(2025, 1, 29, 0, 0, 0, 0, time.UTC), false},
-		{"falls back to last_updated", Result{Date: "", LastUpdated: "2025-03-01"}, time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC), false},
-		{"both empty is an error", Result{}, time.Time{}, true},
-		{"unparseable is an error", Result{Date: "29 January 2025"}, time.Time{}, true},
-		{"a timestamp is not a date", Result{Date: "2025-01-29T10:00:00Z"}, time.Time{}, true},
+		{"date wins over last_updated", Result{Date: "2025-01-29", LastUpdated: "2025-03-01"}, time.Date(2025, 1, 29, 0, 0, 0, 0, time.UTC), "day", false},
+		{"falls back to last_updated", Result{Date: "", LastUpdated: "2025-03-01"}, time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC), "day", false},
+		{"both empty is dated to the window", Result{}, undated, "unknown", false},
+		{"unparseable is an error", Result{Date: "29 January 2025"}, time.Time{}, "", true},
+		{"a timestamp is not a date", Result{Date: "2025-01-29T10:00:00Z"}, time.Time{}, "", true},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := publishedAt(c.result)
+			got, precision, err := publishedAt(c.result, undated)
 			if c.wantErr {
 				if err == nil {
 					t.Fatalf("got %v, want an error", got)
@@ -134,7 +141,25 @@ func TestPublishedAt(t *testing.T) {
 			if !got.Equal(c.want) {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
+			if precision != c.wantPrecision {
+				t.Errorf("precision = %q, want %q", precision, c.wantPrecision)
+			}
 		})
+	}
+}
+
+// The window is half-open, so a result dated exactly at the end would be
+// filtered straight back out as being in the future.
+func TestUndatedAtLandsInsideTheWindow(t *testing.T) {
+	got := UndatedAt(windowEnd)
+	if !got.Before(windowEnd) {
+		t.Errorf("UndatedAt = %v, want it strictly before the window end %v", got, windowEnd)
+	}
+	if windowEnd.Sub(got) > time.Minute {
+		t.Errorf("UndatedAt = %v, want it within a minute of the window end", got)
+	}
+	if got.Location() != time.UTC {
+		t.Errorf("UndatedAt is in %v, want UTC", got.Location())
 	}
 }
 
@@ -148,7 +173,7 @@ func TestCollectIssuesOneSearchPerKeywordAtTheCap(t *testing.T) {
 		},
 	}
 
-	_, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "boat headphones"}, testPrompt)
+	_, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "boat headphones"}, testPrompt, windowEnd)
 	if stop != nil || len(problems) != 0 {
 		t.Fatalf("stop = %v, problems = %v", stop, problems)
 	}
@@ -165,27 +190,47 @@ func TestCollectIssuesOneSearchPerKeywordAtTheCap(t *testing.T) {
 	}
 }
 
-func TestCollectDropsUndatedResultsAndKeepsTheRest(t *testing.T) {
+func TestCollectKeepsAnUndatedResultAndDatesItToTheWindow(t *testing.T) {
 	client := &sourcestest.Client{
 		SearchFunc: func(ctx context.Context, prompt string, opt anakin.SearchOpt) (json.RawMessage, error) {
 			return json.RawMessage(liveResponse), nil
 		},
 	}
 
-	drafts, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt"}, testPrompt)
+	drafts, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt"}, testPrompt, windowEnd)
 	if stop != nil {
 		t.Fatalf("stop = %v", stop)
 	}
-	if len(drafts) != 2 {
-		t.Fatalf("got %d drafts, want 2 of 3", len(drafts))
+	// 66 of the 120 results in the 2026-09-20 recording carry no date at all.
+	// Dropping them is what made a paid-for live run report zero mentions.
+	if len(drafts) != 3 {
+		t.Fatalf("got %d drafts, want all 3 including the undated one", len(drafts))
 	}
-	// The drop is counted, not silent, so a source that quietly loses half its
-	// results shows up in the run log rather than as a quiet week.
-	if len(problems) != 1 {
-		t.Fatalf("got %d problems %v, want 1", len(problems), problems)
+	if len(problems) != 0 {
+		t.Fatalf("got %d problems %v, want none", len(problems), problems)
 	}
-	if !strings.Contains(problems[0].Error(), "https://example.com/undated") {
-		t.Errorf("problem = %v, want it to name the dropped url", problems[0])
+
+	var undated models.Mention
+	for _, d := range drafts {
+		if d.URL == "https://example.com/undated" {
+			undated = d
+		}
+	}
+	if undated.URL == "" {
+		t.Fatal("the undated result is missing from the drafts")
+	}
+	if want := UndatedAt(windowEnd); !undated.PostedAt.Equal(want) {
+		t.Errorf("PostedAt = %v, want the window end %v", undated.PostedAt, want)
+	}
+	// The guess has to be legible downstream, or a consumer reads it as a real
+	// publish date.
+	if undated.Raw["posted_at_precision"] != "unknown" {
+		t.Errorf("Raw[posted_at_precision] = %v, want unknown", undated.Raw["posted_at_precision"])
+	}
+	for _, d := range drafts {
+		if d.URL != "https://example.com/undated" && d.Raw["posted_at_precision"] != "day" {
+			t.Errorf("%s has precision %v, want day", d.URL, d.Raw["posted_at_precision"])
+		}
 	}
 }
 
@@ -201,12 +246,12 @@ func TestCollectStopsOnBudgetAndKeepsWhatItHas(t *testing.T) {
 		},
 	}
 
-	drafts, stop, _ := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "boat headphones", "airdopes"}, testPrompt)
+	drafts, stop, _ := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "boat headphones", "airdopes"}, testPrompt, windowEnd)
 	if !errors.Is(stop, anakin.ErrBudgetExceeded) {
 		t.Fatalf("stop = %v, want ErrBudgetExceeded", stop)
 	}
-	if len(drafts) != 2 {
-		t.Errorf("got %d drafts, want the 2 collected before the ceiling", len(drafts))
+	if len(drafts) != 3 {
+		t.Errorf("got %d drafts, want the 3 collected before the ceiling", len(drafts))
 	}
 	if calls != 2 {
 		t.Errorf("made %d searches, want it to stop at the ceiling rather than try the third keyword", calls)
@@ -223,15 +268,15 @@ func TestCollectContinuesPastOneFailedKeyword(t *testing.T) {
 		},
 	}
 
-	drafts, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "airdopes"}, testPrompt)
+	drafts, stop, problems := Collect(context.Background(), client, models.SourceNews, []string{"boAt", "airdopes"}, testPrompt, windowEnd)
 	if stop != nil {
 		t.Fatalf("stop = %v, want a per-keyword failure not to end the run", stop)
 	}
-	if len(drafts) != 2 {
-		t.Errorf("got %d drafts, want the second keyword's 2", len(drafts))
+	if len(drafts) != 3 {
+		t.Errorf("got %d drafts, want the second keyword's 3", len(drafts))
 	}
-	if len(problems) != 2 {
-		t.Fatalf("got %d problems %v, want the 503 and the undated result", len(problems), problems)
+	if len(problems) != 1 {
+		t.Fatalf("got %d problems %v, want only the 503", len(problems), problems)
 	}
 	if !strings.Contains(problems[0].Error(), "upstream 503") {
 		t.Errorf("problems[0] = %v, want the 503", problems[0])
@@ -245,7 +290,7 @@ func TestCollectRecordsADecodeFailure(t *testing.T) {
 		},
 	}
 
-	drafts, stop, problems := Collect(context.Background(), client, models.SourceWeb, []string{"boAt"}, testPrompt)
+	drafts, stop, problems := Collect(context.Background(), client, models.SourceWeb, []string{"boAt"}, testPrompt, windowEnd)
 	if stop != nil || len(drafts) != 0 {
 		t.Fatalf("stop = %v, drafts = %d", stop, len(drafts))
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +97,11 @@ func TestFetchDropsResultsOutsideTheWindow(t *testing.T) {
 	}
 }
 
-func TestFetchSurfacesAnUndatedResult(t *testing.T) {
+// An undated result is the common case rather than an edge case: 66 of the 120
+// search results recorded on 2026-09-20 carry neither date field. Dropping them
+// is what made a paid live run report zero news mentions, so the result is kept
+// and dated into the window it was collected for.
+func TestFetchKeepsAnUndatedResult(t *testing.T) {
 	client := &sourcestest.Client{
 		SearchFunc: func(ctx context.Context, prompt string, opt anakin.SearchOpt) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"search_1","results":[{"url":"https://example.com/undated","title":"t","snippet":"s","date":"","last_updated":""}]}`), nil
@@ -106,16 +109,21 @@ func TestFetchSurfacesAnUndatedResult(t *testing.T) {
 	}
 
 	out, err := Fetch(context.Background(), client, profile("boAt"), windowStart, windowEnd)
-	if len(out) != 0 {
-		t.Fatalf("got %d mentions, want 0", len(out))
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
 	}
-	if err == nil {
-		t.Fatal("want the dropped result reported, got nil")
+	if len(out) != 1 {
+		t.Fatalf("got %d mentions, want the undated result kept", len(out))
 	}
-	// A run that quietly loses every result to a missing date would look like a
-	// quiet news week, so the error has to name the result that went missing.
-	if !strings.Contains(err.Error(), "https://example.com/undated") {
-		t.Errorf("err = %v, want it to name the dropped url", err)
+
+	// The window is half-open, so surviving mentions.Filter is the assertion
+	// that matters here.
+	if out[0].PostedAt.Before(windowStart) || !out[0].PostedAt.Before(windowEnd) {
+		t.Errorf("PostedAt = %v, want it inside [%v, %v)", out[0].PostedAt, windowStart, windowEnd)
+	}
+	if out[0].Raw["posted_at_precision"] != "unknown" {
+		t.Errorf("Raw[posted_at_precision] = %v, want unknown so a consumer can tell the date is a guess",
+			out[0].Raw["posted_at_precision"])
 	}
 }
 

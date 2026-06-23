@@ -41,7 +41,7 @@ const maxEnrichments = 5
 
 // Fetch collects web mentions for p between start and end.
 func Fetch(ctx context.Context, c anakin.Client, p models.BrandProfile, start, end time.Time) ([]models.Mention, error) {
-	drafts, stop, problems := searchapi.Collect(ctx, c, models.SourceWeb, p.Keywords, prompt)
+	drafts, stop, problems := searchapi.Collect(ctx, c, models.SourceWeb, p.Keywords, prompt, end)
 
 	// Bodies are filled in before the window and negative-keyword filters run,
 	// so both read the same text the classifier will, and so a page whose

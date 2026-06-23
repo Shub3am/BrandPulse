@@ -27,7 +27,7 @@ import (
 // Search API accepts freshness and date_range parameters with a 200 and
 // ignores them.
 func Fetch(ctx context.Context, c anakin.Client, p models.BrandProfile, start, end time.Time) ([]models.Mention, error) {
-	drafts, stop, problems := searchapi.Collect(ctx, c, models.SourceNews, p.Keywords, prompt)
+	drafts, stop, problems := searchapi.Collect(ctx, c, models.SourceNews, p.Keywords, prompt, end)
 
 	out, dropped := mentions.Finalize(drafts, p, start, end)
 	if len(dropped.Invalid) > 0 {
