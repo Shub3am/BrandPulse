@@ -89,6 +89,10 @@ type Store interface {
 	// brief's period-over-period delta.
 	CountMentions(ctx context.Context, brandID string, start, end time.Time) (int, error)
 
+	// EnrichedInWindow is every classified mention the brand has in the window,
+	// whichever run collected it.
+	EnrichedInWindow(ctx context.Context, brandID string, start, end time.Time) ([]models.EnrichedMention, error)
+
 	// PriorWindowCounts is the previous window's mentions per topic label,
 	// which is what Topic.Trend is computed against.
 	PriorWindowCounts(ctx context.Context, brandID string, start, end time.Time) (map[string]int, error)
@@ -315,8 +319,23 @@ func (h OrchestratorHandler) execute(ctx context.Context, in models.RunInput, pr
 		}
 	}
 
-	// Step 5: enrich, persist.
-	enriched := h.enrich(ctx, profile, mentions, log, &total)
+	// Step 5: enrich what this run collected, persist.
+	collected := h.enrich(ctx, profile, mentions, log, &total)
+
+	// Step 5b: read the whole window back.
+	//
+	// Steps 6 to 8 are about a window of time, not about one run's delta.
+	// Analysing only what this call collected makes a topic's size, the share
+	// of voice and every alert threshold a function of how often the brand is
+	// polled: two runs an hour apart each see half the window and neither fires
+	// a rule the whole window would have fired. It also means nothing already
+	// in the table, from an earlier run or from the crisis injection, is ever
+	// looked at again.
+	enriched, err := h.Store.EnrichedInWindow(ctx, in.BrandID, w.start, w.end)
+	if err != nil {
+		log.addf("reading the window back, analysis saw only what this run collected: %v", err)
+		enriched = collected
+	}
 
 	// Step 6: cluster, count share of voice and detect, in parallel.
 	topics, sov, alerts := h.analyse(ctx, in.BrandID, profile, enriched, w, log, &total)

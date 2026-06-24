@@ -144,6 +144,70 @@ func (s PostgresStore) CountMentions(ctx context.Context, brandID string, start,
 	return count, err
 }
 
+// EnrichedInWindow returns every mention in the window that has been
+// classified, newest first.
+//
+// It is an inner join because an EnrichedMention is both halves and there is no
+// neutral enrichment to stand in: a mention the enricher has not reached yet is
+// not yet analysable, and inventing a zero sentiment for it would move every
+// average the detector reads.
+func (s PostgresStore) EnrichedInWindow(ctx context.Context, brandID string, start, end time.Time) ([]models.EnrichedMention, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT m.id, m.brand_id, m.source, m.external_id, m.url, m.author,
+		       m.author_followers, m.text, m.lang, m.posted_at, m.engagement,
+		       m.rating, m.matched_keyword, m.content_hash,
+		       e.sentiment, e.sentiment_label, e.emotion, e.intent, e.aspects,
+		       e.is_about_brand, e.about_competitor, e.model, e.cost_paise
+		  FROM mentions m
+		  JOIN mention_enrichment e ON e.mention_id = m.id
+		 WHERE m.brand_id = $1 AND m.posted_at >= $2 AND m.posted_at < $3
+		 ORDER BY m.posted_at DESC`,
+		brandID, start.UTC(), end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var enriched []models.EnrichedMention
+	for rows.Next() {
+		var (
+			item       models.EnrichedMention
+			source     string
+			label      string
+			emotion    string
+			intent     string
+			engagement []byte
+			aspects    []byte
+		)
+		if err := rows.Scan(
+			&item.Mention.ID, &item.Mention.BrandID, &source, &item.Mention.ExternalID,
+			&item.Mention.URL, &item.Mention.Author, &item.Mention.AuthorFollowers,
+			&item.Mention.Text, &item.Mention.Lang, &item.Mention.PostedAt, &engagement,
+			&item.Mention.Rating, &item.Mention.MatchedKeyword, &item.Mention.ContentHash,
+			&item.Enrichment.Sentiment, &label, &emotion, &intent, &aspects,
+			&item.Enrichment.IsAboutBrand, &item.Enrichment.AboutCompetitor,
+			&item.Enrichment.Model, &item.Enrichment.CostPaise,
+		); err != nil {
+			return nil, err
+		}
+
+		item.Mention.Source = models.Source(source)
+		item.Enrichment.MentionID = item.Mention.ID
+		item.Enrichment.SentimentLabel = models.SentimentLabel(label)
+		item.Enrichment.Emotion = models.Emotion(emotion)
+		item.Enrichment.Intent = models.Intent(intent)
+		if err := json.Unmarshal(engagement, &item.Mention.Engagement); err != nil {
+			return nil, fmt.Errorf("decoding engagement for %s: %w", item.Mention.ID, err)
+		}
+		if err := json.Unmarshal(aspects, &item.Enrichment.Aspects); err != nil {
+			return nil, fmt.Errorf("decoding aspects for %s: %w", item.Mention.ID, err)
+		}
+
+		enriched = append(enriched, item)
+	}
+	return enriched, rows.Err()
+}
+
 // PriorWindowCounts sums topic sizes by label. Labels are model-written, so two
 // windows only line up when the clusterer names the same theme the same way;
 // a label that moved reads as a new topic with a flat trend, which is the
