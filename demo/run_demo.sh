@@ -14,8 +14,13 @@
 
 set -euo pipefail
 
-BRAND_ID="${BRAND_ID:-brd_demo}"
-BP_ORCHESTRATOR_URL="${BP_ORCHESTRATOR_URL:-http://localhost:8080}"
+# Exported, because step 1 hands the preflight to scripts/integration/smoke_local.sh
+# and an override typed in front of this script has to reach it too.
+export BRAND_ID="${BRAND_ID:-brd_demo}"
+# 8000, not 8080: docker-compose.agents.yml publishes the orchestrator on
+# 127.0.0.1:8000, which is also a2a.Serve's default port and the port its card
+# advertises. The BFF keeps 8080 and the browser talks to the BFF directly.
+export BP_ORCHESTRATOR_URL="${BP_ORCHESTRATOR_URL:-http://localhost:8000}"
 export BP_FIXTURE_MODE="${BP_FIXTURE_MODE:-replay}"
 
 RESET=0
@@ -44,16 +49,23 @@ psql_demo() {
   docker compose exec -T postgres psql -U brandpulse -d brandpulse -v ON_ERROR_STOP=1 "$@"
 }
 
-# One A2A message/send against the orchestrator. The trigger decides the time
+# One A2A SendMessage against the orchestrator. The trigger decides the time
 # bucket, which is what makes a re-run inside the same bucket a no-op.
+#
+# The shape is bff/src/orchestrator.ts's, because that client is tested against
+# a real stub agent. A2A is 1.0 here and every difference from 0.x fails
+# silently: the method is SendMessage, the role is ROLE_USER, the version
+# travels as a header, and a Part is a flattened oneof with no kind field.
 orchestrate() {
   local trigger="$1" force="$2"
   curl -sS --fail-with-body -X POST "$BP_ORCHESTRATOR_URL" \
     -H 'Content-Type: application/json' \
+    -H 'A2A-Version: 1.0' \
     -d "$(cat <<JSON
-{"jsonrpc":"2.0","id":"demo-$trigger","method":"message/send","params":{"message":{
-  "role":"user","messageId":"demo-$trigger-$(date +%s)","parts":[{"kind":"data","data":{
-    "brand_id":"$BRAND_ID","trigger":"$trigger","window_hours":24,"force":$force}}]}}}
+{"jsonrpc":"2.0","id":"demo-$trigger","method":"SendMessage","params":{"message":{
+  "messageId":"demo-$trigger-$(date +%s)","role":"ROLE_USER","parts":[{
+    "data":{"brand_id":"$BRAND_ID","trigger":"$trigger","window_hours":24,"force":$force},
+    "mediaType":"application/json"}]}}}
 JSON
 )"
   echo
@@ -61,14 +73,12 @@ JSON
 
 step "Checking Postgres and the orchestrator"
 docker compose up -d --no-recreate postgres
-until docker compose ps postgres | grep -q healthy; do
-  echo "  waiting for postgres to report healthy"
-  sleep 2
-done
-echo "  postgres healthy on 5433"
-curl -sS --fail-with-body "$BP_ORCHESTRATOR_URL/health" >/dev/null \
-  || { echo "bp-orchestrator is not answering at $BP_ORCHESTRATOR_URL" >&2; exit 1; }
-echo "  bp-orchestrator answering at $BP_ORCHESTRATOR_URL"
+# The checks themselves belong to the smoke test, so the demo, CI and a human
+# debugging at 3am all get the same sentences. --preflight stops it before the
+# pipeline assertions, which need the seed two steps below. It also reaches the
+# real health path, /healthz: the line this replaced curled /health, which the
+# JSON-RPC handler mounted at "/" answers with a 200 whatever is wrong.
+"$REPO_ROOT/scripts/integration/smoke_local.sh" --preflight
 echo "  fixture mode: $BP_FIXTURE_MODE"
 
 step "Seeding the demo brand and the fixture corpus"
