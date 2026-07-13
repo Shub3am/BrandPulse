@@ -457,6 +457,41 @@ Roughly 92 credits spare. The client's `MaxCredits` ceiling enforces it
 (CONTRACTS §3, `anakin.NewHTTPClient(cfg)`); B2 prints a dry-run estimate
 before spending anything.
 
+### What the recording actually cost, 2026-09-20
+
+The table above is the plan. This is the bill.
+
+| Item | Credits |
+|---|---|
+| Spent on Tasks 1 to 6 | 35 |
+| **Task 7, the one recording session, actually spent** | **57** |
+| **Total spent** | **92 of 300** |
+| **Remaining** | **208** |
+
+The estimate was 63 and the session spent 57, with 0 cache hits. It came in
+under because the four sources with no adapter in `internal/anakin` (amazon,
+flipkart, instagram, x) were skipped rather than attempted, and those skips
+are free.
+
+**It recorded 0 mentions, and that is an adapter defect, not a credit
+problem.** The responses came back and were written to `fixtures/`, 27 files
+across `reddit/`, `web/` and `youtube/`. Every one of them was then thrown
+away in decode or in filtering:
+
+- `yt_search` returns an **object** under `data`, and the Go struct declared an
+  array: `json: cannot unmarshal object into Go struct field
+  searchResponse.data of type []youtube.video`. Total decode failure, both
+  competitor queries.
+- The news and web adapters dropped **every single result** with "result
+  carries neither a date nor a last_updated". The Search API does not return a
+  date for most results, so requiring one discards the corpus.
+- `rt_search` returned 0 results for the Minimalist queries.
+
+The credits are not lost, because the raw payloads are on disk and replay
+costs nothing. Fixing the adapters and re-running in `BP_FIXTURE_MODE=replay`
+recovers the whole session at zero credits, and that is the only way to
+recover it: **the recording is one-shot and must not be run again.**
+
 **The 11-credit line is a mistake of mine, not a planned read.** I sent
 `maxPages: 0` to `/v1/crawl` expecting a 400 that would tell me the valid
 range, because failed calls are free. It was accepted as the default of 10 and
