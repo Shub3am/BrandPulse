@@ -6,7 +6,7 @@ The Postgres schema, as ordered SQL migrations. Nothing else.
 
 ## What it must not know about
 
-Application code. There is no ORM, no model layer and no seed data here —
+Application code. There is no ORM, no model layer and no seed data here:
 seeding lives in `demo/`.
 
 ## Entry points
@@ -42,11 +42,11 @@ before you wipe it. `db.Migrate` covers the deployed path, where no compose runs
   file and compares its columns to the `json` tags, so a field added on one
   side without the other is a test failure rather than a discovery on stage.
   The intended divergences are listed in CONTRACTS §3b and the test knows them.
-- **`mentions` has `UNIQUE (brand_id, content_hash)`** — that constraint is the
-  dedupe mechanism, not a safety net. Collectors rely on the conflict.
+- **`mentions` has `UNIQUE (brand_id, content_hash)`**, and that constraint is
+  the dedupe mechanism, not a safety net. Collectors rely on the conflict.
 - **`alerts` has `UNIQUE (brand_id, dedupe_key)`** so a sustained crisis is one
   alert per hour, not one per run.
-- **`runs` has `UNIQUE (brand_id, kind, time_bucket)`** — that is how the
+- **`runs` has `UNIQUE (brand_id, kind, time_bucket)`**, and that is how the
   orchestrator is idempotent. Handle the conflict, do not race on it.
 - **`fetch_cache` is keyed `(source, query_hash, time_bucket)`.** Widening the
   bucket is the cheapest lever we have on credit spend.
@@ -55,5 +55,5 @@ before you wipe it. `db.Migrate` covers the deployed path, where no compose runs
 
 ## Who calls this
 
-`internal/db` opens the pool; every agent queries through it. `demo/seed.go`
+`internal/db` opens the pool; every agent queries through it. `demo/cmd/seed`
 loads fixtures. `eval/cost` reads `runs` and `mention_enrichment`.

@@ -1,4 +1,4 @@
-# web/ — the product dashboard
+# web/: the product dashboard
 
 Next.js 16 App Router, React 19, TypeScript, plain CSS. No Tailwind, no
 component library, no state manager. The theme is taken from anakin.io: light,
@@ -112,7 +112,7 @@ than rendering one server-side snapshot.
 - **Synthetic data is labelled from the payload, never from a flag.**
   `components/DataSourceBadge.tsx` derives both the pill and the footnote from
   two facts: which backend answered (`Fetched.answeredBy`) and how many rendered
-  mentions carry `raw.synthetic === true`, which is what `demo/inject_crisis`
+  mentions carry `raw.synthetic === true`, which is what `demo/cmd/injectcrisis`
   marks. Live data gets a "live via bff" pill and no footnote at all, because a
   standing disclaimer is a label readers learn to stop seeing. There is no
   `IS_DEMO` constant and there must not be one. The badge never claims the brand

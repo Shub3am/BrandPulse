@@ -88,8 +88,23 @@ Per-agent input and output signatures are frozen in
   example `currency-agent` Dockerfile does not build at all.
 - **The LLM router ignores the `model` field in the request body.** Per-agent
   model choice is set with `nasiko llm-config`, not in code.
-- **No agent constructs a peer URL.** Fan-out caps live with the orchestrator;
-  a collector handles one source per call and does not fan out.
+- **No agent constructs a peer URL.** `a2a.Call` resolves one by substituting
+  `{agent}` into the `NASIKO_API_URL` template, so **a peer address is deploy
+  configuration, never compiled in**. Two templates are in use: the control
+  plane's `https://<host>/api/agents/{agent}` and compose's
+  `http://{agent}:8000/`. Which one is wrong is only wrong at runtime, so
+  neither belongs in Go.
+- **Every agent listens on 8000.** `a2a.Serve` reads `PORT` and falls back to
+  `8000`, Nasiko's injector defaults `PORT` to 8000, every `Dockerfile` here
+  says `EXPOSE 8000` and every `AgentCard.json` url is `:8000`. Those four have
+  to agree, and 8080 is the number people reach for by habit.
+- **All nine come up locally as `docker compose -f docker-compose.yml -f
+  docker-compose.agents.yml up -d`.** The agents file layers onto the Postgres
+  compose project and does not work on its own, because `postgres` is defined
+  in the other one. It sets `NASIKO_API_URL` to `http://{agent}:8000/` and sets
+  no `PORT`, so the fallback in `a2a.Serve` stays the single source of 8000.
+- Fan-out caps live with the orchestrator; a collector handles one source per
+  call and does not fan out.
 
 ## Who calls this
 

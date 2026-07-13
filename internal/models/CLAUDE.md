@@ -1,4 +1,4 @@
-# internal/models — the frozen wire format
+# internal/models: the frozen wire format
 
 Every byte of JSON that crosses an agent boundary is one of these structs. This
 package is the machine-readable half of [docs/CONTRACTS.md](../../docs/CONTRACTS.md);

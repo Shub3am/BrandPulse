@@ -46,8 +46,12 @@ directly to the typed JSON artifacts.
   on day one.
 - **Guardrails go in the agent's "Rules & Guardrails" instructions**: never
   promise a refund, never admit fault, never commit to a date, always escalate a
-  crisis to a human. The responder enforces the same list server-side. Both,
-  not either.
+  crisis to a human. The responder enforces a server-side floor under those,
+  but it is not the same list: `internal/prompts/guardrails.md` holds 30
+  literal lowercase phrases in 6 groups and `bp-responder` substring-matches
+  them against the draft, so it catches wording and cannot express "escalate to
+  a human". That one is carried by `requires_human_approval`, which
+  `ReplyDraft` emits unconditionally. Both halves, not either.
 - **Nothing here posts to a social platform.** The dashboard's send button
   copies a draft for a human. There is no posting integration.
 

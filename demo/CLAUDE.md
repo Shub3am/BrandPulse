@@ -19,11 +19,13 @@ Agent internals. Everything here goes through the orchestrator or the database.
 | `cmd/replay` | Shifts fixture timestamps so the corpus ends "now". |
 | `cmd/injectcrisis` | Clears its last injection, then drops the synthetic negative surge in. |
 | `crisis/` | The synthetic corpus itself, importable. Rows only, not a command. |
-| `cmd/recordfixtures` | The one live Anakin recording session. B2 only. |
+| `record/` | The one live Anakin recording session. B2 only. |
 | `run_demo.sh` | The full flow. `--reset` reseeds, `--live` adds the live call. |
 
-Each command is its own `package main` under `demo/cmd/` and runs as
-`go run ./demo/cmd/seed`. Four `func main` in one package does not compile.
+Each command is its own `package main`. The three under `demo/cmd/` run as
+`go run ./demo/cmd/seed`; the recorder sits beside them at `demo/record` and
+runs as `go run ./demo/record`. Four `func main` in one package does not
+compile.
 
 `crisis/` is a library, not a command, so the detector's own test can import the
 corpus and prove the injection against the real rules. Turning it around, by
@@ -35,9 +37,9 @@ corpus to the rules needs the detector's unexported thresholds, so it lives in
 
 ## Invariants and gotchas
 
-- **`cmd/recordfixtures` is the only irreversible thing in this repo.** It
-  prints a dry-run credit estimate and exits unless `--confirm` is passed. 300
-  free credits, spent once.
+- **`record/` is the only irreversible thing in this repo.** It prints a
+  dry-run credit estimate and exits unless `-confirm` is passed. 300 free
+  credits, spent once.
 - **`cmd/replay` is deterministic.** Same fixtures in, same timestamps out,
   every time. The whole of its logic is the pure `shift(postedAt, corpusEnd,
   now)`, and that function is what the test pins. A demo that differs between

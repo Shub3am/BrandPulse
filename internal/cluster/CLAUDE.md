@@ -1,4 +1,4 @@
-# internal/cluster — hand-rolled TF-IDF and agglomerative clustering
+# internal/cluster: hand-rolled TF-IDF and agglomerative clustering
 
 The one package under `internal/` that B1 does not own. It exists because Go
 has no scikit-learn: pkg.go.dev returns exactly one agglomerative clustering

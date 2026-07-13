@@ -1,4 +1,4 @@
-# bff/ — the dashboard's only backend
+# bff/: the dashboard's only backend
 
 Fastify 5, TypeScript, `pg`. No ORM, no validation library, no GraphQL. Four
 read routes and one write route, and the write is a single A2A call.
@@ -53,10 +53,11 @@ orchestrator's URL. Both are read here, server-side, from the environment.
   build contexts and two `rootDir`s mean neither can import the other.
   `web/scripts/checkTypesParity.mjs` checks both against `models.go`, so the
   duplication is build-enforced rather than review-enforced.
-- **`internal/models/agentio.go` does not exist.** CONTRACTS §2 specifies the
-  envelopes and there is no Go source for them, so `src/envelopes.ts` is typed
-  from the document, not from code, and the parity check deliberately skips it.
-  See the blocker row in `HACKATHON_NOTES.md`.
+- **`internal/models/agentio.go` has landed, and `src/envelopes.ts` is still
+  not checked against it.** These envelopes were transcribed from CONTRACTS §2
+  while there was no Go source, and `checkTypesParity.mjs` mirrors `models.go`
+  only, so this is the one wire shape here with no build-enforced parity. Where
+  the two disagree, `agentio.go` wins and this file changes.
 - **An absent optional field is an absent key, not a `null`.** `omitempty` means
   Go emits no key at all. `rows.ts` maps a NULL column to `undefined` so
   `JSON.stringify` drops it, and it never substitutes a zero: `rating: 0` is a
