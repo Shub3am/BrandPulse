@@ -48,7 +48,7 @@ Newest entry at the bottom of its section.
 | B2, B3, B4 | B1 | **`ids.New` and `hashing.ContentHash` still `panic("not implemented")`.** They are on the path every mention takes: `mentions.Stamp` calls both on every draft, so any adapter that actually returns a mention panics rather than failing. 23 stubs across `internal/` are in this state. Every adapter test in `internal/anakin/sources/` currently drives `Fetch` with a 2020 collection window so the filter empties the batch and `Stamp` loops zero times. That is a workaround, not coverage: the moment B1 implements these two, those windows move to real dates and the assertions get stronger. | open, blocks Task 7 recording |
 | B2 | B1 | **CONTRACTS §4 specifies an impossible adapter layout.** It puts every adapter at a flat file in one package, each exporting `Fetch`, which is a redeclaration error the moment the second one lands. Detail and the proposed wording are in the resolved entry below. I am building against a directory per source meanwhile, so B1's ruling only has to confirm or rename, not reshape. | open, needs a ruling |
 | B2 | B7 | `docs/SOURCE-STRATEGY.md` says seven sources and still lists `amazon` as a mention source. Amazon is dead (evidence below). The file lives on `main`, which I do not write to. | open |
-| B2, B3 | B1 | **`anakin.NewHTTPClient` panics, so the Task 7 recording cannot run and the Task 8 labelling set cannot be sampled.** `demo/record` is written, tested and its dry run prints a 63-credit estimate, but `-confirm` panics at `internal/anakin/anakin.go:194`. B3 is waiting on `fixtures/labelled/mentions.jsonl` and I will not fabricate it: the repo rule is that a source which did not return data does not appear in a fixture, a count or a sentence. **The moment `NewHTTPClient` and `record` mode land I run the session and B3 has the corpus the same hour.** | open, blocks Tasks 7 and 8 |
+| ~~B2, B3~~ | ~~B1~~ | ~~**`anakin.NewHTTPClient` panics, so the Task 7 recording cannot run and the Task 8 labelling set cannot be sampled.** `demo/record` is written, tested and its dry run prints a 63-credit estimate, but `-confirm` panics at `internal/anakin/anakin.go:194`.~~ | **closed 2026-09-20**. The recording session ran and spent **57 credits** against the 63 estimate, putting the project at **92 of 300 with 208 remaining**. Replaying the recorded fixtures yields **181 mentions: reddit 112, web 40, news 29**, so B3 has the corpus and the demo is no longer blocked on the recording. The full bill, and why the session itself decoded 0 mentions before the adapters were fixed, is in `docs/research/anakin.md` §6, "What the recording actually cost, 2026-09-20". **The recording is one-shot and must not be run again**; replay costs nothing. |
 
 In Go a missing package is a compile error for everyone downstream, not a
 runtime `ImportError` in one test. That is why B1's signature commit is its own
@@ -1626,9 +1626,11 @@ brackets and is replaced, never quietly promoted.
 | Credits spent on Task 1 schema reads | **9** of ≤ 10 | B2 Task 1, actual | B2 |
 | Credits spent on the Play Store probe | **4** of 3, one over, see the Task 2 entry | B2 Task 2, actual | B2 |
 | Credits spent picking the demo brand | **4**, two `rt_search` calls | B2 Task 3, actual | B2 |
-| **Credits spent, running total** | **17 of 300** | B2 | B2 |
-| Credits spent recording fixtures | _(est. ~103, was ~136 before Amazon came out)_ | B2 Task 7 actual | B2 |
-| Mentions in the fixture corpus | — | `fixtures/` count | B2 |
+| **Credits spent, Tasks 1 to 6** | **35 of 300** | B2, actual | B2 |
+| Credits spent recording fixtures | **57**, the one Task 7 session, against a 63 estimate | B2 Task 7, actual | B2 |
+| **Credits spent, running total** | **92 of 300** | B2, `docs/research/anakin.md` §6 | B2 |
+| **Credits remaining** | **208** | B2, `docs/research/anakin.md` §6 | B2 |
+| Mentions in the fixture corpus | **181**: reddit 112, web 40, news 29 | replay of `fixtures/` | B2 |
 | Sources shipped | **6** | B2 Task 2, settled | B2 |
 | Play Store reviews per listing per run | **3** | B2 Task 2, actual | B2 |
 | Sentiment accuracy | — | `go run ./eval/accuracy` | B3 |
