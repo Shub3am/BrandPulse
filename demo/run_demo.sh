@@ -56,6 +56,13 @@ psql_demo() {
 # a real stub agent. A2A is 1.0 here and every difference from 0.x fails
 # silently: the method is SendMessage, the role is ROLE_USER, the version
 # travels as a header, and a Part is a flattened oneof with no kind field.
+#
+# 504 hours, not the orchestrator's 24-hour default. In replay the reddit
+# fixture is found by sha256 over {method, arg, opt}, and reddit's opt carries a
+# time bucket derived from the width of the window. The recording ran over 21
+# days, which is the "month" bucket, so a 24-hour window asks for "day" and
+# hashes to six files that were never recorded: reddit silently collects 0 of
+# its 112 mentions. 504 hours is those same 21 days.
 orchestrate() {
   local trigger="$1" force="$2"
   curl -sS --fail-with-body -X POST "$BP_ORCHESTRATOR_URL" \
@@ -64,7 +71,7 @@ orchestrate() {
     -d "$(cat <<JSON
 {"jsonrpc":"2.0","id":"demo-$trigger","method":"SendMessage","params":{"message":{
   "messageId":"demo-$trigger-$(date +%s)","role":"ROLE_USER","parts":[{
-    "data":{"brand_id":"$BRAND_ID","trigger":"$trigger","window_hours":24,"force":$force},
+    "data":{"brand_id":"$BRAND_ID","trigger":"$trigger","window_hours":504,"force":$force},
     "mediaType":"application/json"}]}}}
 JSON
 )"
@@ -93,7 +100,7 @@ fi
 step "Replaying the corpus so it ends now"
 go run ./demo/cmd/replay -brand "$BRAND_ID"
 
-step "Running the pipeline over the last 24 hours"
+step "Running the pipeline over the last 21 days"
 orchestrate scheduled true
 
 step "Injecting the crisis"

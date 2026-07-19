@@ -190,7 +190,7 @@ task="$(curl -sS --max-time "$RUN_TIMEOUT" -X POST "$NASIKO_BASE_URL/api/agents/
   -d "$(cat <<JSON
 {"jsonrpc":"2.0","id":"smoke-deployed","method":"SendMessage","params":{"message":{
   "messageId":"smoke-deployed-$(date +%s)","role":"ROLE_USER","parts":[{
-    "data":{"brand_id":"$BRAND_ID","trigger":"scheduled","window_hours":24,"force":true},
+    "data":{"brand_id":"$BRAND_ID","trigger":"scheduled","window_hours":504,"force":true},
     "mediaType":"application/json"}]}}}
 JSON
 )")" || fail \
