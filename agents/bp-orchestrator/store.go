@@ -151,13 +151,19 @@ func (s PostgresStore) CountMentions(ctx context.Context, brandID string, start,
 // neutral enrichment to stand in: a mention the enricher has not reached yet is
 // not yet analysable, and inventing a zero sentiment for it would move every
 // average the detector reads.
+//
+// The nullable TEXT columns are coalesced because their Go fields are plain
+// strings with omitempty, so "" and NULL already mean the same thing there.
+// Rating is not: it is *float64 precisely so that "no rating" stays distinct
+// from a zero-star review.
 func (s PostgresStore) EnrichedInWindow(ctx context.Context, brandID string, start, end time.Time) ([]models.EnrichedMention, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT m.id, m.brand_id, m.source, m.external_id, m.url, m.author,
+		SELECT m.id, m.brand_id, m.source, m.external_id,
+		       coalesce(m.url, ''), coalesce(m.author, ''),
 		       m.author_followers, m.text, m.lang, m.posted_at, m.engagement,
-		       m.rating, m.matched_keyword, m.content_hash,
+		       m.rating, coalesce(m.matched_keyword, ''), m.content_hash,
 		       e.sentiment, e.sentiment_label, e.emotion, e.intent, e.aspects,
-		       e.is_about_brand, e.about_competitor, e.model, e.cost_paise
+		       e.is_about_brand, coalesce(e.about_competitor, ''), e.model, e.cost_paise
 		  FROM mentions m
 		  JOIN mention_enrichment e ON e.mention_id = m.id
 		 WHERE m.brand_id = $1 AND m.posted_at >= $2 AND m.posted_at < $3
@@ -547,6 +553,11 @@ func (s PostgresStore) storedIDs(ctx context.Context, alerts []models.Alert) ([]
 // nothing to point at.
 //
 // Every draft is written with status 'draft'. Nothing in this repo sends one.
+//
+// $2 is cast because it is the one parameter Postgres cannot type on its own:
+// `$2 IS NULL` accepts any type and so resolves it to unknown, while the same
+// parameter in the target list and in `id = $2` resolves to text, and the
+// planner rejects the contradiction with 42P08 before the batch ever runs.
 func (s PostgresStore) SaveDrafts(ctx context.Context, drafts []models.ReplyDraft) error {
 	batch := &pgx.Batch{}
 	for _, draft := range drafts {
@@ -557,8 +568,8 @@ func (s PostgresStore) SaveDrafts(ctx context.Context, drafts []models.ReplyDraf
 		batch.Queue(`
 			INSERT INTO reply_drafts (id, alert_id, mention_id, channel, text, tone,
 			                          do_not_say, status)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8
-			WHERE $2 IS NULL OR EXISTS (SELECT 1 FROM alerts WHERE id = $2)
+			SELECT $1, $2::text, $3, $4, $5, $6, $7, $8
+			WHERE $2::text IS NULL OR EXISTS (SELECT 1 FROM alerts WHERE id = $2::text)
 			ON CONFLICT (id) DO NOTHING`,
 			draft.ID, nullable(draft.AlertID), nullable(draft.MentionID),
 			string(draft.Channel), draft.Text, draft.Tone, doNotSay, string(draft.Status))
