@@ -59,11 +59,25 @@ func NewClustererHandler() ClustererHandler {
 // Mentions the enricher judged not about this brand are dropped before
 // clustering rather than sent to Unclustered: they are not noise this brand
 // failed to group, they are somebody else's conversation.
+//
+// A window that yields no topics always says why in Errors. Zero topics is a
+// legitimate answer here, so it is not an error return, but an empty TopicSet
+// and an empty Errors are indistinguishable from a crash to everything
+// downstream, and the three ways to reach zero have three different fixes:
+// nothing collected, nothing on-brand, or nothing similar enough to group.
 func (h ClustererHandler) Handle(ctx context.Context, in models.ClusterInput) (models.TopicSet, error) {
 	out := models.TopicSet{Topics: []models.Topic{}, Unclustered: []string{}, Errors: []string{}}
 
+	if len(in.Enriched) == 0 {
+		out.Errors = append(out.Errors, "no topics: the window carried no enriched mentions")
+		return out, nil
+	}
+
 	onBrand := onBrandMentions(in.Enriched)
 	if len(onBrand) == 0 {
+		out.Errors = append(out.Errors, fmt.Sprintf(
+			"no topics: the enricher judged all %d mentions in this window not about this brand, so nothing reached clustering; check the brand's keyword set",
+			len(in.Enriched)))
 		return out, nil
 	}
 
@@ -71,7 +85,13 @@ func (h ClustererHandler) Handle(ctx context.Context, in models.ClusterInput) (m
 	for _, m := range onBrand {
 		texts = append(texts, m.Mention.Text)
 	}
-	groups := cluster.Agglomerative(cluster.TFIDF(texts), distanceCutoff, minClusterSize(in.MinClusterSize))
+	minSize := minClusterSize(in.MinClusterSize)
+	groups := cluster.Agglomerative(cluster.TFIDF(texts), distanceCutoff, minSize)
+	if len(groups) == 0 {
+		out.Errors = append(out.Errors, fmt.Sprintf(
+			"no topics: %d of %d mentions were about this brand and none of them formed a group of at least %d at cosine distance %.2f",
+			len(onBrand), len(in.Enriched), minSize, distanceCutoff))
+	}
 
 	// Order is cluster.Agglomerative's: size descending with a defined
 	// tie-break. Re-sorting here would replace a deterministic order with a

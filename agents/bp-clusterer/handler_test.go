@@ -390,6 +390,73 @@ func TestHandleEmptyInput(t *testing.T) {
 	if out.Topics == nil || out.Unclustered == nil || out.Errors == nil {
 		t.Error("nil slices marshal as null; the contract's zero value is an empty list")
 	}
+	if len(out.Errors) != 1 {
+		t.Errorf("Errors = %v, want one entry saying the window was empty", out.Errors)
+	}
+}
+
+// Zero topics is a legitimate answer, so it is not an error return. But a
+// caller that cannot tell "nothing was on-brand" from "the agent fell over"
+// has nothing to act on, and the real pipeline run that motivated these three
+// tests reported an empty TopicSet with an empty Errors.
+func TestHandleSaysWhyWhenEverythingIsOffBrand(t *testing.T) {
+	requireIDs(t)
+	stub := &stubLabeller{}
+	in := toyInput()
+	for i := range in.Enriched {
+		in.Enriched[i].Enrichment.IsAboutBrand = false
+	}
+
+	out := handle(t, newHandler(stub), in)
+
+	if len(out.Topics) != 0 {
+		t.Fatalf("got %d topics, want 0", len(out.Topics))
+	}
+	if stub.calls != 0 {
+		t.Errorf("made %d label calls with nothing on-brand, want 0", stub.calls)
+	}
+	if len(out.Errors) != 1 {
+		t.Fatalf("Errors = %v, want one entry naming the off-brand drop", out.Errors)
+	}
+	if !strings.Contains(out.Errors[0], "not about this brand") {
+		t.Errorf("Errors[0] = %q, want it to name the off-brand drop", out.Errors[0])
+	}
+}
+
+func TestHandleSaysWhyWhenNothingFormsACluster(t *testing.T) {
+	requireIDs(t)
+	stub := &stubLabeller{}
+	in := toyInput()
+	// Two topics of three, below a min size of 4, so no group survives.
+	in.Enriched = append(toyMentions()[0:3], toyMentions()[5:8]...)
+	in.MinClusterSize = 4
+
+	out := handle(t, newHandler(stub), in)
+
+	if len(out.Topics) != 0 {
+		t.Fatalf("got %d topics, want 0", len(out.Topics))
+	}
+	if len(out.Errors) != 1 {
+		t.Fatalf("Errors = %v, want one entry naming the minimum cluster size", out.Errors)
+	}
+	if !strings.Contains(out.Errors[0], "at least 4") {
+		t.Errorf("Errors[0] = %q, want it to name the minimum that nothing met", out.Errors[0])
+	}
+}
+
+// The reason is a diagnosis, not a status line: a window that did produce
+// topics must not carry one.
+func TestHandleReportsNoReasonWhenTopicsAreFound(t *testing.T) {
+	requireIDs(t)
+
+	out := handle(t, newHandler(&stubLabeller{}), toyInput())
+
+	if len(out.Topics) == 0 {
+		t.Fatal("got 0 topics, want the toy corpus to cluster")
+	}
+	if len(out.Errors) != 0 {
+		t.Errorf("Errors = %v, want none on a window that produced topics", out.Errors)
+	}
 }
 
 func labelsOf(out models.TopicSet) []string {
