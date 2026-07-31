@@ -36,7 +36,7 @@ arguments. The distance cutoff and the 8-cluster cap are named constants in
   and the package stops being deterministic under floating-point equality.
 - **`idf = log(N / (1 + df))` goes to zero and below.** A term in exactly N-1
   documents scores 0; a term in all N scores negative. A document whose every
-  term is corpus-wide therefore vectorises to **all zeros**, and `normalise`
+  term is corpus-wide therefore vectorises to **all zeros**, and `normaliseAt`
   leaves it at zero rather than dividing. Without that guard the row becomes
   `NaN`, which does not fail here: it fails three agents downstream as
   `json: unsupported value`. `CosineDistance` reports a zero row as distance 1

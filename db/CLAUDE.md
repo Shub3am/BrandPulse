@@ -12,9 +12,9 @@ seeding lives in `demo/`.
 ## Entry points
 
 `migrations/001_init.sql` is the whole schema as of Phase 0. You do not apply it
-by hand and there is no `psql` on the host. `docker-compose.yml` mounts this
-directory at `/docker-entrypoint-initdb.d`, so Postgres applies it itself, once,
-on an empty volume:
+by hand and there is no `psql` on the host. `docker-compose.yml` mounts
+`./db/migrations` at `/docker-entrypoint-initdb.d`, so Postgres applies it
+itself, once, on an empty volume:
 
 ```bash
 docker compose up -d --no-recreate postgres
@@ -50,8 +50,15 @@ before you wipe it. `db.Migrate` covers the deployed path, where no compose runs
   orchestrator is idempotent. Handle the conflict, do not race on it.
 - **`fetch_cache` is keyed `(source, query_hash, time_bucket)`.** Widening the
   bucket is the cheapest lever we have on credit spend.
-- **`source_yield` drives flow-guard source prioritisation.** An empty table
-  means the orchestrator falls back to the profile's declared order.
+- **`source_yield` drives flow-guard source prioritisation.** The orchestrator
+  reads yesterday's row per source, ranks on mentions per credit highest first,
+  and breaks a tie alphabetically on the source name. The profile's declared
+  order carries no weight at any point, so an empty table is not a fallback to
+  it: every source yields 0, the whole ranking collapses to alphabetical, and a
+  brand over the fan-out cap loses the last names in the alphabet rather than
+  the ones it listed last. The tie-break is deliberate, because a ranking that
+  reorders under Go's randomised map iteration is a demo that cannot be
+  rehearsed, and `agents/bp-orchestrator/sources_test.go` pins it.
 
 ## Who calls this
 
