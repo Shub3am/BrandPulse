@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -44,9 +45,11 @@ func NewEnricherHandler() *EnricherHandler {
 // Handle classifies every mention in in.Mentions and returns one Enrichment
 // per mention, in no guaranteed order.
 //
-// A batch the model cannot answer twice degrades to neutral enrichments with a
-// line in Errors. It does not return an error: per CONTRACTS §1 the error
-// return is for malformed input, and one bad batch must not lose a run.
+// A mention the model will not answer twice degrades to a neutral enrichment
+// with its id named in Errors. Degrading is per mention, not per batch: the
+// answers that did come back are kept. It does not return an error: per
+// CONTRACTS §1 the error return is for malformed input, and one bad batch must
+// not lose a run.
 func (h *EnricherHandler) Handle(ctx context.Context, in models.EnrichInput) (models.EnrichmentBatch, error) {
 	out := models.EnrichmentBatch{Enrichments: []models.Enrichment{}, Errors: []string{}}
 	if len(in.Mentions) == 0 {
@@ -70,44 +73,62 @@ func (h *EnricherHandler) Handle(ctx context.Context, in models.EnrichInput) (mo
 	}
 
 	for batch := range slices.Chunk(uncached, batchSize(in.BatchSize)) {
-		enrichments, usage, err := h.classify(ctx, batch, redacted, in.Profile)
+		answered, unanswered, usage, err := h.classify(ctx, batch, redacted, in.Profile)
 		if err != nil {
 			out.Errors = append(out.Errors, err.Error())
-			enrichments = neutralEnrichments(batch)
 		}
 		out.TokensUsed += usage.PromptTokens + usage.CompletionTokens
 		out.CostPaise += usage.CostPaise
-		out.Enrichments = append(out.Enrichments, h.store(batch, price(enrichments, usage))...)
+		// Only the answered enrichments are cached. A degraded neutral is a
+		// placeholder, and caching one would neutralise that mention on every
+		// later run instead of re-asking for it.
+		out.Enrichments = append(out.Enrichments, h.store(batch, price(answered, usage))...)
+		out.Enrichments = append(out.Enrichments, neutralEnrichments(unanswered)...)
 	}
 	return out, nil
 }
 
-// classify runs one batch, retrying once. llm.ChatJSON already retries a reply
-// that is not valid JSON; this retry is for the other failure, a reply that
-// parses but does not answer the question, which is the one that produces a
-// mention with no enrichment.
-func (h *EnricherHandler) classify(ctx context.Context, batch []models.Mention, redacted map[string]string, profile models.BrandProfile) ([]models.Enrichment, llm.Usage, error) {
-	prompt, err := buildPrompt(batch, redacted, profile)
-	if err != nil {
-		return nil, llm.Usage{}, err
-	}
-
+// classify runs one batch, retrying once, and returns the enrichments it got
+// alongside the mentions still unanswered after the last attempt. llm.ChatJSON
+// already retries a reply that is not valid JSON; this retry is for the other
+// failure, a reply that parses but does not answer for every mention.
+//
+// The retry asks only about what is still missing. Re-sending the whole batch
+// pays again for answers already in hand and gives the model a fresh chance to
+// drop a different id, which is how one omission turns into a loop that never
+// converges.
+func (h *EnricherHandler) classify(ctx context.Context, batch []models.Mention, redacted map[string]string, profile models.BrandProfile) ([]models.Enrichment, []models.Mention, llm.Usage, error) {
+	var answered []models.Enrichment
 	var total llm.Usage
 	var lastErr error
-	for attempt := range 2 {
+
+	unanswered := batch
+	for attempt := range maxAttempts {
+		prompt, err := buildPrompt(unanswered, redacted, profile)
+		if err != nil {
+			return answered, unanswered, total, err
+		}
+
+		asked := len(unanswered)
 		raw, usage, err := h.chat(ctx, prompt, enrichmentReply{}, llm.Opt{})
 		total.PromptTokens += usage.PromptTokens
 		total.CompletionTokens += usage.CompletionTokens
 		total.CostPaise += usage.CostPaise
 		if err == nil {
-			var enrichments []models.Enrichment
-			if enrichments, err = parseReply(raw, batch); err == nil {
-				return enrichments, total, nil
+			var got []models.Enrichment
+			got, unanswered, err = parseReply(raw, unanswered)
+			answered = append(answered, got...)
+			if len(unanswered) == 0 {
+				return answered, nil, total, nil
 			}
+			// Joined, not conditional: a reply can both omit ids and answer
+			// one invalidly, and naming only the invalid one would hide the
+			// omitted ids in exactly the case with the most to explain.
+			err = errors.Join(err, omissionError(unanswered))
 		}
-		lastErr = fmt.Errorf("batch of %d, attempt %d: %w", len(batch), attempt+1, err)
+		lastErr = fmt.Errorf("batch of %d, attempt %d: %w", asked, attempt+1, err)
 	}
-	return nil, total, lastErr
+	return answered, unanswered, total, lastErr
 }
 
 // price spreads one call's cost evenly across the mentions it answered. The

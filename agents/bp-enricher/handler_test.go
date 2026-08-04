@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,6 +76,30 @@ func answerAll(_ int, prompt string) (json.RawMessage, llm.Usage, error) {
 	raw, err := json.Marshal(enrichmentReply{Enrichments: enrichments})
 	usage := llm.Usage{PromptTokens: 100, CompletionTokens: 50, CostPaise: 12}
 	return raw, usage, err
+}
+
+// answerAllExcept replies for every mention in the prompt but the named ones,
+// which is what a model dropping an id out of a large batch looks like.
+func answerAllExcept(skipped ...string) func(int, string) (json.RawMessage, llm.Usage, error) {
+	return func(_ int, prompt string) (json.RawMessage, llm.Usage, error) {
+		enrichments := make([]replyEnrichment, 0)
+		for _, id := range idsInPrompt(prompt) {
+			if slices.Contains(skipped, id) {
+				continue
+			}
+			enrichments = append(enrichments, replyEnrichment{
+				MentionID:      id,
+				Sentiment:      -0.8,
+				SentimentLabel: models.SentimentNegative,
+				Emotion:        models.EmotionAnger,
+				Intent:         models.IntentComplaint,
+				Aspects:        []string{"delivery"},
+				IsAboutBrand:   true,
+			})
+		}
+		raw, err := json.Marshal(enrichmentReply{Enrichments: enrichments})
+		return raw, llm.Usage{PromptTokens: 100, CompletionTokens: 50, CostPaise: 12}, err
+	}
 }
 
 // idsInPrompt pulls the mention ids back out of the rendered prompt. The stub
@@ -352,6 +377,102 @@ func TestHandleRetriesOnceThenDegradesToNeutral(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The live failure: a model that drops one id out of a batch. The other
+// mentions were classified correctly and must survive; only the dropped one
+// degrades, and its id has to be in Errors or nobody can find it again.
+func TestHandleKeepsTheAnsweredMentionsWhenOneIsOmitted(t *testing.T) {
+	requireRedactor(t)
+	stub := &stubLLM{reply: answerAllExcept("mn_001")}
+
+	out, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{
+		Mentions: testMentions(3),
+		Profile:  testProfile(),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error, but an omission must not fail a run: %v", err)
+	}
+	if len(out.Enrichments) != 3 {
+		t.Fatalf("got %d enrichments, want 3", len(out.Enrichments))
+	}
+
+	byID := map[string]models.Enrichment{}
+	for _, e := range out.Enrichments {
+		byID[e.MentionID] = e
+	}
+	for _, id := range []string{"mn_000", "mn_002"} {
+		if got := byID[id].Sentiment; got != -0.8 {
+			t.Errorf("%s: Sentiment = %v, want -0.8: an answered mention was thrown away with the omitted one", id, got)
+		}
+	}
+	if degraded := byID["mn_001"]; degraded.SentimentLabel != models.SentimentNeutral || degraded.IsAboutBrand {
+		t.Errorf("mn_001 = %+v, want neutral and not-about-brand", degraded)
+	}
+	if len(out.Errors) != 1 || !strings.Contains(out.Errors[0], "mn_001") {
+		t.Errorf("Errors = %v, want one entry naming mn_001", out.Errors)
+	}
+}
+
+// Re-sending the whole batch pays for the answers already in hand and gives the
+// model another chance to drop a different id.
+func TestHandleRetriesOnlyTheOmittedMentions(t *testing.T) {
+	requireRedactor(t)
+	stub := &stubLLM{reply: func(call int, prompt string) (json.RawMessage, llm.Usage, error) {
+		if call == 1 {
+			return answerAllExcept("mn_001")(call, prompt)
+		}
+		return answerAll(call, prompt)
+	}}
+
+	out, err := newHandler(stub).Handle(context.Background(), models.EnrichInput{
+		Mentions: testMentions(3),
+		Profile:  testProfile(),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("made %d calls, want 2", stub.calls)
+	}
+	if got := idsInPrompt(stub.prompts[1]); !slices.Equal(got, []string{"mn_001"}) {
+		t.Errorf("retry asked about %v, want only [mn_001]", got)
+	}
+	if len(out.Errors) != 0 {
+		t.Errorf("Errors = %v, want none after a successful retry", out.Errors)
+	}
+	for _, e := range out.Enrichments {
+		if e.SentimentLabel == models.SentimentNeutral {
+			t.Errorf("%s degraded to neutral although the retry answered it", e.MentionID)
+		}
+	}
+}
+
+// A degraded enrichment is a placeholder, not an answer. Caching it would make
+// the mention permanently neutral on every later run.
+func TestHandleDoesNotCacheADegradedMention(t *testing.T) {
+	requireRedactor(t)
+	stub := &stubLLM{reply: answerAllExcept("mn_001")}
+	handler := newHandler(stub)
+	in := models.EnrichInput{Mentions: testMentions(3), Profile: testProfile()}
+
+	if _, err := handler.Handle(context.Background(), in); err != nil {
+		t.Fatalf("first Handle returned error: %v", err)
+	}
+
+	stub.reply = answerAll
+	out, err := handler.Handle(context.Background(), in)
+	if err != nil {
+		t.Fatalf("second Handle returned error: %v", err)
+	}
+	if out.CacheHits != 2 {
+		t.Errorf("CacheHits = %d, want 2: the two answered mentions, and not the degraded one", out.CacheHits)
+	}
+	for _, e := range out.Enrichments {
+		if e.MentionID == "mn_001" && e.SentimentLabel == models.SentimentNeutral {
+			t.Error("mn_001 came back neutral on the second run, so the degraded enrichment was cached")
+		}
 	}
 }
 

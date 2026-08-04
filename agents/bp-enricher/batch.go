@@ -21,6 +21,9 @@ import (
 // §2. 50 is the contract's number, not a tuning knob.
 const defaultBatchSize = 50
 
+// maxAttempts counts the first call plus one retry of whatever it left out.
+const maxAttempts = 2
+
 // enricherPrompt is parsed once. prompts.Load panics on a missing prompt, so a
 // renamed file fails at process start rather than on the first classification.
 var enricherPrompt = template.Must(template.New("enricher").Parse(prompts.Load("enricher")))
@@ -97,14 +100,19 @@ func list(values []string) string {
 	return strings.Join(values, ", ")
 }
 
-// parseReply decodes a batch response and checks it covers exactly the
-// mentions asked about. A reply missing ids or carrying invented ones is
-// malformed, because the caller joins on the id and a silent gap would show up
-// as a mention that was never classified.
-func parseReply(raw json.RawMessage, batch []models.Mention) ([]models.Enrichment, error) {
+// parseReply decodes a batch response and splits the mentions asked about into
+// the ones it answered usably and the ones it did not. A gap is per mention and
+// never fatal for the batch: the caller joins on the id, so one dropped or
+// invalid object costs that one mention and nothing else.
+//
+// The returned error covers a reply that could not be decoded at all, and an
+// object that decoded but failed Validate, because "the model sent sentiment
+// 4.2" is a different problem from "the model said nothing" and the ids alone
+// would not say which happened.
+func parseReply(raw json.RawMessage, batch []models.Mention) ([]models.Enrichment, []models.Mention, error) {
 	var reply enrichmentReply
 	if err := json.Unmarshal(raw, &reply); err != nil {
-		return nil, fmt.Errorf("decode reply: %w", err)
+		return nil, batch, fmt.Errorf("decode reply: %w", err)
 	}
 
 	byID := make(map[string]replyEnrichment, len(reply.Enrichments))
@@ -113,10 +121,13 @@ func parseReply(raw json.RawMessage, batch []models.Mention) ([]models.Enrichmen
 	}
 
 	enrichments := make([]models.Enrichment, 0, len(batch))
+	unanswered := make([]models.Mention, 0)
+	var invalid error
 	for _, m := range batch {
 		got, ok := byID[m.ID]
 		if !ok {
-			return nil, fmt.Errorf("reply omits mention %q", m.ID)
+			unanswered = append(unanswered, m)
+			continue
 		}
 		enrichment := models.Enrichment{
 			MentionID:       m.ID,
@@ -132,16 +143,32 @@ func parseReply(raw json.RawMessage, batch []models.Mention) ([]models.Enrichmen
 			enrichment.Aspects = []string{}
 		}
 		if err := enrichment.Validate(); err != nil {
-			return nil, fmt.Errorf("mention %q: %w", m.ID, err)
+			unanswered = append(unanswered, m)
+			if invalid == nil {
+				invalid = fmt.Errorf("mention %q: %w", m.ID, err)
+			}
+			continue
 		}
 		enrichments = append(enrichments, enrichment)
 	}
-	return enrichments, nil
+	return enrichments, unanswered, invalid
 }
 
-// neutralEnrichments is what a batch degrades to when the model fails twice.
-// Neutral and not-about-brand, so a failed batch cannot manufacture sentiment
-// or inflate share of voice; the Errors entry is what says it happened.
+// omissionError names the mentions a reply left out. The ids are the point: an
+// operator reading Errors has to be able to find the mentions that came back
+// neutral without diffing two batches by hand.
+func omissionError(unanswered []models.Mention) error {
+	ids := make([]string, 0, len(unanswered))
+	for _, m := range unanswered {
+		ids = append(ids, m.ID)
+	}
+	return fmt.Errorf("reply omits %d mention(s): %s", len(ids), strings.Join(ids, ", "))
+}
+
+// neutralEnrichments is what the mentions the model never answered degrade to.
+// Neutral and not-about-brand, so a failed classification cannot manufacture
+// sentiment or inflate share of voice; the Errors entry is what says it
+// happened, and it names these ids.
 func neutralEnrichments(batch []models.Mention) []models.Enrichment {
 	enrichments := make([]models.Enrichment, 0, len(batch))
 	for _, m := range batch {
