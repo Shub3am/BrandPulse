@@ -45,6 +45,16 @@ REQUIRED_PROTOCOL_VERSION = "1.0"
 # cards shipped exactly that and passed the rest of this script.
 REQUIRED_PROTOCOL_BINDING = "JSONRPC"
 
+# The four agents that make no LLM call, so their cards must say llm_provider
+# is null. Every other agent must name a provider. The key has to be present
+# either way: an absent llm_provider and an explicit null read the same to a
+# JSON parser but not to a human deciding what this agent costs to run, and
+# bp-responder and bp-briefer both shipped without it and passed everything
+# else in this script.
+AGENTS_WITHOUT_LLM = frozenset(
+    {"bp-collector", "bp-sov", "bp-detector", "bp-orchestrator"}
+)
+
 
 def interface_problems(interfaces: object) -> list[str]:
     """Return one sentence per thing wrong with a card's supportedInterfaces."""
@@ -95,7 +105,36 @@ def problems_with(card: dict) -> list[str]:
     if "skills" in card and not card["skills"]:
         problems.append("skills is empty, so the agent is invisible to routing")
 
+    problems.extend(llm_provider_problems(card))
+
     return problems
+
+
+def llm_provider_problems(card: dict) -> list[str]:
+    """Return one sentence if the card's llm_provider disagrees with the code."""
+    name = card.get("name")
+    makes_no_llm_call = name in AGENTS_WITHOUT_LLM
+
+    if "llm_provider" not in card:
+        wanted = "null" if makes_no_llm_call else "the router it calls"
+        return [
+            f"no llm_provider key. {name!r} must declare it as {wanted}, because "
+            f"whether an agent costs tokens to run is the kind of true a reader "
+            f"checks the card for"
+        ]
+
+    provider = card["llm_provider"]
+    if makes_no_llm_call and provider is not None:
+        return [
+            f"llm_provider is {provider!r} but {name!r} makes no LLM call, so the "
+            f"card overstates what this agent costs to run"
+        ]
+    if not makes_no_llm_call and not provider:
+        return [
+            f"llm_provider is {provider!r} but {name!r} does call an LLM, so the "
+            f"card understates what this agent costs to run"
+        ]
+    return []
 
 
 def main() -> int:

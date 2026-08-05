@@ -44,5 +44,6 @@
         "Draft a WhatsApp reply to this customer whose order never arrived."
       ]
     }
-  ]
+  ],
+  "llm_provider": "nasiko-router"
 }

@@ -44,5 +44,6 @@
         "Write the weekly brief for brand brd_01J9 from the topics, alerts and share of voice already computed for the week."
       ]
     }
-  ]
+  ],
+  "llm_provider": "nasiko-router"
 }
