@@ -827,6 +827,73 @@ func TestOnlyHighAndCriticalAlertsGetADraft(t *testing.T) {
 	}
 }
 
+// A keyword set matches other people's businesses, so a window holds mentions
+// the enricher judged not about this brand. An alert built out of those must not
+// become a reply drafted in the brand's voice.
+func TestAnOffBrandMentionNeverReachesTheResponder(t *testing.T) {
+	store := newFakeStore(testProfile(models.SourceX))
+	peers := newStubPeers().withMentions(models.SourceX, 2, 4)
+	// withMentions appends in id order, so this is mn_x_0: the keyword
+	// collision. mn_x_1 keeps the default on-brand enrichment.
+	peers.enrichment.Enrichments[0].IsAboutBrand = false
+
+	collision := models.NewAlert("alt_collision", testBrandID, models.AlertCrisis, models.SeverityCritical, "crisis:x:1", testNow)
+	collision.SampleMentions = []models.Mention{testMention(models.SourceX, "mn_x_0", testNow.Add(-time.Minute))}
+	genuine := models.NewAlert("alt_genuine", testBrandID, models.AlertCrisis, models.SeverityCritical, "crisis:x:2", testNow)
+	genuine.SampleMentions = []models.Mention{testMention(models.SourceX, "mn_x_1", testNow.Add(-2*time.Minute))}
+
+	peers.alerts.Alerts = []models.Alert{collision, genuine}
+	peers.draft = models.NewReplyDraft("rd_1", models.ChannelStatement)
+
+	// The responder fans out, so the capture needs its own lock.
+	var (
+		mu       sync.Mutex
+		asked    []models.RespondInput
+		detected models.DetectInput
+	)
+	handler := newTestHandler(store, peers)
+	inner := handler.Call
+	handler.Call = func(ctx context.Context, agent string, in any, out any) error {
+		mu.Lock()
+		switch agent {
+		case agentResponder:
+			asked = append(asked, in.(models.RespondInput))
+		case agentDetector:
+			detected = in.(models.DetectInput)
+		}
+		mu.Unlock()
+		return inner(ctx, agent, in, out)
+	}
+
+	run, err := handler.Handle(context.Background(), models.RunInput{BrandID: testBrandID, Trigger: models.RunScheduled})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// Without this the test would pass on a window that collected nothing.
+	if len(detected.Enriched) != 2 || run.MentionsCollected != 2 {
+		t.Fatalf("the window carried %d enriched mentions of %d collected, want 2 of 2",
+			len(detected.Enriched), run.MentionsCollected)
+	}
+
+	if len(asked) != 1 {
+		t.Fatalf("%d responder calls, want 1: only the on-brand alert is drafted for", len(asked))
+	}
+	if got := asked[0].Alert.ID; got != "alt_genuine" {
+		t.Errorf("drafted for alert %q, want %q", got, "alt_genuine")
+	}
+	for _, input := range asked {
+		for _, sample := range input.Alert.SampleMentions {
+			if sample.ID == "mn_x_0" {
+				t.Errorf("mention %q reached the responder, and the enricher said it is not about this brand", sample.ID)
+			}
+		}
+	}
+	if len(store.savedAlerts) != 2 {
+		t.Errorf("stored %d alerts, want 2: an undrafted alert is still an alert", len(store.savedAlerts))
+	}
+}
+
 // bp-detector mints a fresh alert id every run while the dedupe key is stable
 // for the hour, so the second run of an hour loses its insert to alerts UNIQUE
 // (brand_id, dedupe_key). A draft written against the id it generated points at

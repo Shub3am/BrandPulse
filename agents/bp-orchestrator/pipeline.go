@@ -341,7 +341,7 @@ func (h OrchestratorHandler) execute(ctx context.Context, in models.RunInput, pr
 	topics, sov, alerts := h.analyse(ctx, in.BrandID, profile, enriched, w, log, &total)
 
 	// Step 7: draft a reply for every alert a human would have to answer today.
-	h.respond(ctx, profile, alerts, log)
+	h.respond(ctx, profile, alerts, onBrandMentionIDs(enriched), log)
 
 	// Step 8: write the brief.
 	h.writeBrief(ctx, in.BrandID, profile, topics, alerts, sov, enriched, w, log)
@@ -660,12 +660,23 @@ func (h OrchestratorHandler) analyse(
 // It drafts. Nothing in this repo posts, not behind a flag. Each draft is
 // written with requires_human_approval on the wire and a person sends it or
 // does not.
-func (h OrchestratorHandler) respond(ctx context.Context, profile models.BrandProfile, alerts []models.Alert, log *runLog) {
+//
+// onBrand is the window's on-brand mention ids. An alert fires on volume and
+// volume includes whatever the keyword matched, so a brand named after a place
+// collects other businesses' conversations and an alert can be built entirely
+// out of them. The responder writes public text in the brand's voice, so an
+// alert carrying a mention the enricher judged off-brand gets no draft: a reply
+// to a stranger's question is worse than no reply at all.
+func (h OrchestratorHandler) respond(ctx context.Context, profile models.BrandProfile, alerts []models.Alert, onBrand map[string]bool, log *runLog) {
 	urgent := make([]models.Alert, 0, len(alerts))
 	for _, alert := range alerts {
-		if alert.Severity == models.SeverityHigh || alert.Severity == models.SeverityCritical {
-			urgent = append(urgent, alert)
+		if alert.Severity != models.SeverityHigh && alert.Severity != models.SeverityCritical {
+			continue
 		}
+		if !aboutBrandOnly(alert, onBrand) {
+			continue
+		}
+		urgent = append(urgent, alert)
 	}
 	if len(urgent) == 0 {
 		return
@@ -706,6 +717,31 @@ func (h OrchestratorHandler) respond(ctx context.Context, profile models.BrandPr
 	if err := h.Store.SaveDrafts(ctx, drafts); err != nil {
 		log.addf("persisting reply drafts: %v", err)
 	}
+}
+
+// onBrandMentionIDs is the ids of the window's mentions the enricher judged to
+// be about this brand.
+func onBrandMentionIDs(enriched []models.EnrichedMention) map[string]bool {
+	onBrand := make(map[string]bool, len(enriched))
+	for _, e := range enriched {
+		if e.Enrichment.IsAboutBrand {
+			onBrand[e.Mention.ID] = true
+		}
+	}
+	return onBrand
+}
+
+// aboutBrandOnly reports whether every mention an alert carries is on-brand. A
+// mention absent from the set is not on-brand: an unjudged mention is not an
+// established fact, the same reason step 5 drops a mention with no enrichment
+// rather than zero-valuing it.
+func aboutBrandOnly(alert models.Alert, onBrand map[string]bool) bool {
+	for _, sample := range alert.SampleMentions {
+		if !onBrand[sample.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
