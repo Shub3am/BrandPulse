@@ -160,6 +160,17 @@ func batchSize(requested int) int {
 	return min(requested, defaultBatchSize)
 }
 
+// cacheKey scopes a content hash to one brand. internal/hashing computes the
+// hash from the source and the text alone, and IsAboutBrand and AboutCompetitor
+// are judged entirely against EnrichInput.Profile, so an unscoped key lets one
+// brand's verdict on a tweet be served to a different brand asking about the
+// same tweet. This handler is long-lived and shared across requests, so that is
+// a live possibility rather than a theoretical one. mentions already carries
+// UNIQUE (brand_id, content_hash) for the same reason.
+func cacheKey(m models.Mention) string {
+	return m.BrandID + "\x00" + m.ContentHash
+}
+
 // lookup returns a cached enrichment re-keyed to this mention. Two mentions
 // with identical text share a hash, so the id has to be overwritten rather
 // than carried over from whichever mention was classified first.
@@ -169,7 +180,7 @@ func (h *EnricherHandler) lookup(m models.Mention) (models.Enrichment, bool) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	hit, ok := h.cached[m.ContentHash]
+	hit, ok := h.cached[cacheKey(m)]
 	if !ok {
 		return models.Enrichment{}, false
 	}
@@ -181,18 +192,20 @@ func (h *EnricherHandler) lookup(m models.Mention) (models.Enrichment, bool) {
 	return hit, true
 }
 
-// store caches each enrichment under its mention's content hash and returns
-// them unchanged.
+// store caches each enrichment under its mention's brand-scoped content hash
+// and returns them unchanged.
 func (h *EnricherHandler) store(batch []models.Mention, enrichments []models.Enrichment) []models.Enrichment {
-	hashOf := make(map[string]string, len(batch))
+	keyOf := make(map[string]string, len(batch))
 	for _, m := range batch {
-		hashOf[m.ID] = m.ContentHash
+		if m.ContentHash != "" {
+			keyOf[m.ID] = cacheKey(m)
+		}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, e := range enrichments {
-		if hash := hashOf[e.MentionID]; hash != "" {
-			h.cached[hash] = e
+		if key := keyOf[e.MentionID]; key != "" {
+			h.cached[key] = e
 		}
 	}
 	return enrichments

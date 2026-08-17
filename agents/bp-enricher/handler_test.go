@@ -313,6 +313,50 @@ func TestHandleSecondRunSpendsNothing(t *testing.T) {
 	}
 }
 
+// is_about_brand and about_competitor are judged entirely against the profile,
+// so the same tweet is a different question for a different brand. The content
+// hash is computed from the source and the text alone and knows nothing about
+// either, and this handler is long-lived and shared across requests, so an
+// unscoped cache would answer the second brand with the first brand's verdict.
+func TestHandleDoesNotServeOneBrandsVerdictToAnother(t *testing.T) {
+	requireRedactor(t)
+	stub := &stubLLM{reply: answerAll}
+	handler := newHandler(stub)
+
+	first := testMentions(5)
+	if _, err := handler.Handle(context.Background(), models.EnrichInput{
+		Mentions: first,
+		Profile:  testProfile(),
+	}); err != nil {
+		t.Fatalf("first brand's Handle returned error: %v", err)
+	}
+	callsAfterFirst := stub.calls
+
+	// The same texts, so the same content hashes, asked about by a second
+	// brand. Only BrandID differs.
+	second := testMentions(5)
+	for i := range second {
+		second[i].BrandID = "brd_other"
+	}
+	otherProfile := models.NewBrandProfile("brd_other", "Plum")
+	otherProfile.Keywords = []string{"plum"}
+
+	out, err := handler.Handle(context.Background(), models.EnrichInput{
+		Mentions: second,
+		Profile:  otherProfile,
+	})
+	if err != nil {
+		t.Fatalf("second brand's Handle returned error: %v", err)
+	}
+
+	if out.CacheHits != 0 {
+		t.Errorf("CacheHits = %d, want 0: these hashes were classified for a different brand", out.CacheHits)
+	}
+	if stub.calls == callsAfterFirst {
+		t.Error("the second brand made no LLM call, so it was served the first brand's classification")
+	}
+}
+
 func TestHandleRetriesOnceThenDegradesToNeutral(t *testing.T) {
 	requireRedactor(t)
 	cases := []struct {
