@@ -14,7 +14,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -88,6 +87,14 @@ func (h *EnricherHandler) Handle(ctx context.Context, in models.EnrichInput) (mo
 	return out, nil
 }
 
+// maxAttempts counts the first call plus one retry of whatever it left out. It
+// lives here rather than with the prompt because it is retry policy, which is
+// classify's business. Two and not three: attempt 3 would send the same bytes
+// as attempt 2, since llm.Opt carries no temperature and no seed, so it would
+// pay again for the same question having already learned the answer is not
+// coming.
+const maxAttempts = 2
+
 // classify runs one batch, retrying once, and returns the enrichments it got
 // alongside the mentions still unanswered after the last attempt. llm.ChatJSON
 // already retries a reply that is not valid JSON; this retry is for the other
@@ -121,12 +128,10 @@ func (h *EnricherHandler) classify(ctx context.Context, batch []models.Mention, 
 			if len(unanswered) == 0 {
 				return answered, nil, total, nil
 			}
-			// Joined, not conditional: a reply can both omit ids and answer
-			// one invalidly, and naming only the invalid one would hide the
-			// omitted ids in exactly the case with the most to explain.
-			err = errors.Join(err, omissionError(unanswered))
 		}
-		lastErr = fmt.Errorf("batch of %d, attempt %d: %w", asked, attempt+1, err)
+		// asked, not len(unanswered): parseReply has already narrowed that to
+		// the remainder, and the number worth reading is how many were sent.
+		lastErr = fmt.Errorf("asked %d, attempt %d: %w", asked, attempt+1, err)
 	}
 	return answered, unanswered, total, lastErr
 }
