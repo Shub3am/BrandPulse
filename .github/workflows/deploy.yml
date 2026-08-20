@@ -142,14 +142,24 @@ jobs:
       # Deploy, never upload. Both nasiko upload and the dashboard zip uploader
       # post to /api/agents/upload, whose validate_agent_zip requires a main.py
       # and rejects a Go agent with a 400.
+      # The image is built here rather than by `nasiko deploy <dir>`, because
+      # every agent Dockerfile needs the repo root as its build context: it
+      # does `COPY go.*` and `COPY internal/`, neither of which exists inside
+      # agents/<name>/. Handing nasiko the directory would give docker that
+      # directory as the context and the build would fail on the first COPY.
+      # `nasiko deploy` takes an image or a directory, so the image is the
+      # form that lets us keep the context right.
       - name: deploy
         env:
           DIRS: ${{ steps.targets.outputs.dirs }}
         run: |
           for dir in $DIRS; do
             name=$(basename "$dir")
-            echo "== deploying $name"
-            ( cd "$dir" && nasiko deploy . --name "$name" )
+            version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$dir/AgentCard.json")
+            echo "== building $name:$version"
+            docker build -f "$dir/Dockerfile" -t "$name:$version" .
+            echo "== deploying $name:$version"
+            nasiko deploy "$name:$version" --name "$name"
           done
 
       - name: what is running now
