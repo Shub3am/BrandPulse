@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { after, test } from "node:test";
 import type { RunRecord } from "./contracts.js";
-import { OrchestratorError, createOrchestrator } from "./orchestrator.js";
+import { AgentError } from "./a2a.js";
+import { createOrchestrator } from "./orchestrator.js";
 
 const PARTIAL_RUN: RunRecord = {
   id: "run_01JFZ3P7QK8N2V5X9YB4C6D8EG",
@@ -205,7 +206,7 @@ test("a failed task becomes a 502 carrying the agent's reason", async () => {
   await assert.rejects(
     createOrchestrator(url, 5_000).startRun({ brand_id: "lumeo", trigger: "on_demand" }),
     (error: unknown) => {
-      assert.ok(error instanceof OrchestratorError);
+      assert.ok(error instanceof AgentError);
       assert.equal(error.httpStatus, 502);
       assert.match(error.message, /anakin returned 429 on every source/);
       return true;
@@ -229,7 +230,7 @@ test("a JSON-RPC error becomes a 502 and never a silent empty run", async () => 
   await assert.rejects(
     createOrchestrator(url, 5_000).startRun({ brand_id: "lumeo", trigger: "on_demand" }),
     (error: unknown) => {
-      assert.ok(error instanceof OrchestratorError);
+      assert.ok(error instanceof AgentError);
       assert.equal(error.httpStatus, 502);
       assert.match(error.message, /-32601/);
       return true;
@@ -245,7 +246,7 @@ test("an artifact under the wrong name is refused rather than forwarded", async 
   await assert.rejects(
     createOrchestrator(url, 5_000).startRun({ brand_id: "lumeo", trigger: "on_demand" }),
     (error: unknown) => {
-      assert.ok(error instanceof OrchestratorError);
+      assert.ok(error instanceof AgentError);
       assert.match(error.message, /expected a RunRecord artifact, got: MentionBatch/);
       return true;
     },
@@ -260,7 +261,7 @@ test("an agent that never answers becomes a 504, not a hung request", async () =
   await assert.rejects(
     createOrchestrator(url, 150).startRun({ brand_id: "lumeo", trigger: "on_demand" }),
     (error: unknown) => {
-      assert.ok(error instanceof OrchestratorError);
+      assert.ok(error instanceof AgentError);
       assert.equal(error.httpStatus, 504);
       assert.match(error.message, /did not answer within 150ms/);
       return true;

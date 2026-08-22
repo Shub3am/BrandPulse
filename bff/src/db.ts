@@ -17,6 +17,7 @@ import type { BrandProfile } from "./contracts.js";
 import {
   toAlert,
   toBrandProfile,
+  toBrandSummary,
   toEnrichedMention,
   toMention,
   toReplyDraft,
@@ -24,6 +25,8 @@ import {
   toTopic,
   type AlertRow,
   type BrandProfileRow,
+  type BrandSummary,
+  type BrandSummaryRow,
   type EnrichedMentionRow,
   type MentionRow,
   type ReplyDraftRow,
@@ -33,6 +36,7 @@ import {
 
 /** What a route is allowed to depend on. The test fake implements this too. */
 export interface History {
+  listBrands(): Promise<BrandSummary[]>;
   latestBrandProfile(brandId: string): Promise<BrandProfile | null>;
   latestRun(brandId: string): Promise<RunRecord | null>;
   runById(runId: string): Promise<RunRecord | null>;
@@ -88,6 +92,17 @@ export function createHistory(databaseUrl: string, timeoutMs: number): History {
   }
 
   return {
+    async listBrands() {
+      // Every brand, unpaginated on purpose: this feeds a picker in a top bar,
+      // and a picker that hides the brand you just created is worse than a
+      // query that returns a few more rows than it needs to.
+      const rows = await query<BrandSummaryRow>(
+        `SELECT id, name, website FROM brands ORDER BY name ASC`,
+        [],
+      );
+      return rows.map(toBrandSummary);
+    },
+
     async latestBrandProfile(brandId) {
       const rows = await query<BrandProfileRow>(
         `SELECT b.id, b.name, b.website, p.version, p.keywords, p.hashtags,

@@ -1,16 +1,17 @@
 # bff/: the dashboard's only backend
 
-Fastify 5, TypeScript, `pg`. No ORM, no validation library, no GraphQL. Four
-read routes and one write route, and the write is a single A2A call.
+Fastify 5, TypeScript, `pg`. No ORM, no validation library, no GraphQL. Five
+read routes and two write routes.
 
 ## What this module owns
 
 Being the only thing `web/` talks to. It reads brand history out of Postgres,
-starts an on-demand run through `bp-orchestrator`, and hands the browser the
-agents' own artifact JSON without reshaping it.
+starts an on-demand run through `bp-orchestrator`, onboards a new brand through
+`bp-onboarder`, and hands the browser the agents' own artifact JSON without
+reshaping it.
 
-It also owns the two secrets `web/` must never see: `DATABASE_URL` and the
-orchestrator's URL. Both are read here, server-side, from the environment.
+It also owns the secrets `web/` must never see: `DATABASE_URL` and both agent
+URLs. All of them are read here, server-side, from the environment.
 
 ## What it must not know about
 
@@ -19,9 +20,14 @@ orchestrator's URL. Both are read here, server-side, from the environment.
   produced. Renaming a key, flattening a nested object, rounding a float or
   summing a list are all the same defect: a number on the screen that no agent
   can be held to. Unwrapping the A2A envelope is transport, and is allowed.
-- **Writing.** The agents own every write in this system. `db.ts` opens the pool
-  with `default_transaction_read_only=on`, so an `INSERT` added here later fails
-  at the Postgres server rather than in review.
+- **Writing anything an agent produces.** The agents own every write to the
+  tables a run fills. `db.ts` opens its pool with
+  `default_transaction_read_only=on`, so an `INSERT` added to a read path fails
+  at the Postgres server rather than in review. The single exception is
+  registering a brand that does not exist yet, which no agent can do because a
+  run needs the `brands` row to already be there. That write lives in
+  `registry.ts`, on its own writable pool, and it touches `brands` and
+  `brand_profiles` and nothing else.
 - **Posting anywhere.** There is no send path in this repo and there must not be
   one. `POST /api/runs` starts a collection run; it publishes nothing.
 - **Which alert is the important one.** The dashboard renders what the `alerts`
@@ -35,8 +41,11 @@ orchestrator's URL. Both are read here, server-side, from the environment.
 | `src/server.ts` | Reads the env, opens the pool, listens. The only file that does. |
 | `src/app.ts` | Builds the Fastify instance from collaborators it is handed. |
 | `src/env.ts` | Config shape and required-variable failures. |
-| `src/orchestrator.ts` | The A2A client. The only file that knows an agent URL. |
+| `src/a2a.ts` | The A2A transport. One `callAgent`, shared by both agent clients. |
+| `src/orchestrator.ts` | `bp-orchestrator`, its artifact name and its timeout. |
+| `src/onboarder.ts` | `bp-onboarder`, same shape, reached only by `POST /api/brands`. |
 | `src/db.ts` | The read-only pool and one method per query. |
+| `src/registry.ts` | The one writable pool. Registers a brand and its profile. |
 | `src/rows.ts` | Postgres row → wire shape, per CONTRACTS §3b. |
 | `src/routes/*.ts` | One file per route, named for its path. |
 | `src/contracts.ts` | The wire format, mirrored from `internal/models/models.go`. |
@@ -49,6 +58,24 @@ orchestrator's URL. Both are read here, server-side, from the environment.
   the version travels as the `A2A-Version: 1.0` header, and `Part` is a
   flattened oneof with **no `kind` discriminator**. `orchestrator.test.ts` runs
   a real HTTP stub agent precisely so a guess here cannot pass.
+- **A brand is still created when `bp-onboarder` is not.** `POST /api/brands`
+  catches the agent's failure, writes the brand from the keywords the owner
+  typed and returns them the id with `onboarder_error` set. A form that refuses
+  because a crawler is down loses the one thing the person actually gave us.
+- **A registered brand must be runnable the moment it is written.** That is
+  three things, and each of them is a run that collects nothing if it is
+  missing: `confirmed_at` is set, because `LoadProfile` in
+  `agents/bp-orchestrator/store.go` requires a confirmed profile and refuses
+  otherwise; `version` is 1, because the primary key is `(brand_id, version)`;
+  and `sources` names the platforms, because `chooseSources` in
+  `agents/bp-orchestrator/sources.go` ranks that list and nothing else.
+  `bp-onboarder` returns `sources: []` every time, since `models.NewBrandProfile`
+  initialises it empty, so the route supplies the same ten the seeded demo brand
+  carries rather than persisting the agent's answer verbatim.
+- **Every jsonb parameter is `JSON.stringify`d.** node-postgres encodes a JS
+  array as a Postgres array literal, which is the wrong type for a `jsonb`
+  column and fails at the server. `agents/bp-orchestrator/store.go` has the same
+  helper for the same reason.
 - **`src/contracts.ts` duplicates `web/lib/types.ts` on purpose.** Two Docker
   build contexts and two `rootDir`s mean neither can import the other.
   `web/scripts/checkTypesParity.mjs` checks both against `models.go`, so the
@@ -98,7 +125,9 @@ npm run build   # tsc, no bundler
 npm test        # node:test, zero network, zero Postgres, zero credits
 ```
 
-Required environment: `DASHBOARD_ORIGIN`, `ORCHESTRATOR_URL`, `DATABASE_URL`.
-Optional: `PORT` (8080), `HOST`, `ORCHESTRATOR_TIMEOUT_MS` (120000),
-`DATABASE_TIMEOUT_MS` (5000). The orchestrator URL is injected at deploy time
-and is not committed.
+Required environment: `DASHBOARD_ORIGIN`, `ORCHESTRATOR_URL`, `ONBOARDER_URL`,
+`DATABASE_URL`. Optional: `PORT` (8080), `HOST`, `ORCHESTRATOR_TIMEOUT_MS`
+(120000), `ONBOARDER_TIMEOUT_MS` (45000), `DATABASE_TIMEOUT_MS` (5000). Both
+agent URLs are injected at deploy time and are not committed. `docker compose`
+publishes only `bp-orchestrator` to the host, so a BFF running outside compose
+reaches `bp-onboarder` only if that port is published too.

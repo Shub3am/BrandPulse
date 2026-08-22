@@ -15,8 +15,11 @@ export interface Config {
   dashboardOrigin: string;
   /** bp-orchestrator's A2A base URL. Injected at deploy time, never committed. */
   orchestratorUrl: string;
+  /** bp-onboarder's A2A base URL. Same deal, and reached only by POST /api/brands. */
+  onboarderUrl: string;
   databaseUrl: string;
   orchestratorTimeoutMs: number;
+  onboarderTimeoutMs: number;
   databaseTimeoutMs: number;
 }
 
@@ -46,10 +49,15 @@ export function loadConfig(): Config {
     host: process.env.HOST?.trim() || "0.0.0.0",
     dashboardOrigin: required("DASHBOARD_ORIGIN"),
     orchestratorUrl: required("ORCHESTRATOR_URL").replace(/\/+$/, ""),
+    onboarderUrl: required("ONBOARDER_URL").replace(/\/+$/, ""),
     databaseUrl: required("DATABASE_URL"),
     // A run fans out nine agents behind one call, so the ceiling is generous.
     // It is still a ceiling: without it a hung agent hangs the dashboard.
     orchestratorTimeoutMs: positiveInt("ORCHESTRATOR_TIMEOUT_MS", 120_000),
+    // One agent, one site crawl, one LLM call. A person is watching a form
+    // submit spin, and waiting two minutes for it is worse than falling back
+    // to the keywords they typed, which POST /api/brands does on a timeout.
+    onboarderTimeoutMs: positiveInt("ONBOARDER_TIMEOUT_MS", 45_000),
     databaseTimeoutMs: positiveInt("DATABASE_TIMEOUT_MS", 5_000),
   };
 }

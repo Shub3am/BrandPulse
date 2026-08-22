@@ -40,6 +40,27 @@ function optional<T>(value: T | null | undefined): T | undefined {
   return value === null ? undefined : value;
 }
 
+/**
+ * What the brand picker needs, which is not a BrandProfile: the picker renders
+ * before any profile is chosen and a profile carries ten fields it never shows.
+ * This shape is the BFF's own, so it is declared here and not in contracts.ts.
+ */
+export interface BrandSummary {
+  id: string;
+  name: string;
+  website?: string;
+}
+
+export interface BrandSummaryRow {
+  id: string;
+  name: string;
+  website: string | null;
+}
+
+export function toBrandSummary(row: BrandSummaryRow): BrandSummary {
+  return { id: row.id, name: row.name, website: optional(row.website) };
+}
+
 export interface BrandProfileRow {
   id: string;
   name: string;

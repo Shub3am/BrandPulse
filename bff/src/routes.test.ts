@@ -9,8 +9,10 @@ import { test } from "node:test";
 import { buildApp } from "./app.js";
 import type { Alert, EnrichedMention, ReplyDraft, RunRecord, Topic } from "./contracts.js";
 import type { History } from "./db.js";
+import type { Onboarder } from "./onboarder.js";
 import type { Orchestrator } from "./orchestrator.js";
-import { OrchestratorError } from "./orchestrator.js";
+import type { Registry } from "./registry.js";
+import { AgentError } from "./a2a.js";
 
 const DASHBOARD_ORIGIN = "http://localhost:3000";
 
@@ -49,6 +51,7 @@ const ALERT: Alert = {
 /** Every method resolves empty unless the test overrides it. */
 function fakeHistory(overrides: Partial<History> = {}): History {
   return {
+    listBrands: async () => [],
     latestBrandProfile: async () => null,
     latestRun: async () => RUN,
     runById: async () => null,
@@ -67,7 +70,36 @@ function fakeOrchestrator(overrides: Partial<Orchestrator> = {}): Orchestrator {
 }
 
 function appWith(history: History, orchestrator: Orchestrator = fakeOrchestrator()) {
-  return buildApp({ history, orchestrator, dashboardOrigin: DASHBOARD_ORIGIN, logger: false });
+  return buildApp({
+    history,
+    registry: refusingRegistry(),
+    orchestrator,
+    onboarder: refusingOnboarder(),
+    dashboardOrigin: DASHBOARD_ORIGIN,
+    logger: false,
+  });
+}
+
+/**
+ * The read tests in this file never create a brand, so their collaborators for
+ * that path fail loudly rather than pretending. brands.test.ts supplies real
+ * fakes; a no-op here would let a route start writing without a test noticing.
+ */
+function refusingRegistry(): Registry {
+  return {
+    createBrand: async () => {
+      throw new Error("this test must not write a brand");
+    },
+    close: async () => {},
+  };
+}
+
+function refusingOnboarder(): Onboarder {
+  return {
+    onboard: async () => {
+      throw new Error("this test must not call bp-onboarder");
+    },
+  };
 }
 
 test("pulse returns a named slot per artifact with no errors when every query works", async () => {
@@ -248,7 +280,7 @@ test("an agent timeout reaches the browser as a 504 with the reason", async () =
     fakeHistory(),
     fakeOrchestrator({
       startRun: async () => {
-        throw new OrchestratorError("bp-orchestrator did not answer within 120000ms", 504);
+        throw new AgentError("bp-orchestrator did not answer within 120000ms", 504);
       },
     }),
   );

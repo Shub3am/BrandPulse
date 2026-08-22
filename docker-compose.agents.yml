@@ -125,6 +125,14 @@ services:
     build:
       context: .
       dockerfile: agents/bp-onboarder/Dockerfile
+    ports:
+      # The second agent on the host, because the BFF calls this one directly
+      # when someone adds a brand in the dashboard: ONBOARDER_URL is required
+      # and a host process cannot reach a service that publishes nothing.
+      # 8001 on the host, 8000 in the container, because 8000 is already taken
+      # by bp-orchestrator and the in-container port is a2a.Serve's fallback
+      # that every agent shares. 127.0.0.1 for the same reason as above.
+      - "127.0.0.1:8001:8000"
     environment:
       <<: *agent-env
       # Never read in replay: internal/anakin only demands a key for record and

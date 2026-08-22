@@ -11,17 +11,23 @@
 
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
+import { AgentError } from "./a2a.js";
 import type { History } from "./db.js";
-import { OrchestratorError, type Orchestrator } from "./orchestrator.js";
+import type { Onboarder } from "./onboarder.js";
+import type { Orchestrator } from "./orchestrator.js";
+import type { Registry } from "./registry.js";
 import { BadRequestError } from "./routes/params.js";
 import { registerAlertsRoute } from "./routes/alerts.js";
+import { registerBrandRoutes } from "./routes/brands.js";
 import { registerMentionsRoute } from "./routes/mentions.js";
 import { registerPulseRoute } from "./routes/pulse.js";
 import { registerRunRoutes } from "./routes/runs.js";
 
 export interface AppDependencies {
   history: History;
+  registry: Registry;
   orchestrator: Orchestrator;
+  onboarder: Onboarder;
   /** The one browser origin allowed to call these routes. Never a list, never "*". */
   dashboardOrigin: string;
   /** Off in tests only. A request log is how a degraded run is diagnosed in production. */
@@ -30,7 +36,9 @@ export interface AppDependencies {
 
 export function buildApp({
   history,
+  registry,
   orchestrator,
+  onboarder,
   dashboardOrigin,
   logger = true,
 }: AppDependencies): FastifyInstance {
@@ -46,6 +54,7 @@ export function buildApp({
   // as a container restart loop.
   app.get("/health", async () => ({ ok: true }));
 
+  registerBrandRoutes(app, history, registry, onboarder);
   registerPulseRoute(app, history);
   registerMentionsRoute(app, history);
   registerAlertsRoute(app, history);
@@ -55,7 +64,7 @@ export function buildApp({
     if (error instanceof BadRequestError) {
       return reply.code(error.httpStatus).send({ error: error.message });
     }
-    if (error instanceof OrchestratorError) {
+    if (error instanceof AgentError) {
       request.log.error({ err: error }, "agent call failed");
       return reply.code(error.httpStatus).send({ error: error.message });
     }

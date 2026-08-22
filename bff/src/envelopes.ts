@@ -54,6 +54,26 @@ export interface BaselineStats {
   days: number;
 }
 
+/** bp-onboarder's input, as §2 declares it. Its output is a BrandProfile. */
+export interface OnboardInput {
+  brand_id: string;
+  name: string;
+  website?: string;
+  competitors: string[];
+  max_pages: number;
+}
+
+/**
+ * What the BFF sends bp-onboarder.
+ *
+ * max_pages is omitted for the same reason window_hours is below: §2 says the
+ * agent applies the default when it is 0, and the BFF choosing 25 would be the
+ * BFF setting a crawl budget that belongs to the agent.
+ */
+export type OnboardRequest =
+  & Pick<OnboardInput, "brand_id" | "name" | "competitors">
+  & Partial<Pick<OnboardInput, "website" | "max_pages">>;
+
 /** bp-orchestrator's input, as §2 declares it. */
 export interface RunInput {
   brand_id: string;
