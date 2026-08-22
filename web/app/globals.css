@@ -208,6 +208,78 @@ a { color: inherit; text-decoration: none; }
   text-align: left;
 }
 
+/* --- brand bar ---------------------------------------------------------- */
+
+/* Positioned, so the list failure underneath it anchors to the bar rather than
+   to whatever ancestor happens to be positioned. */
+.brand-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-pick { display: flex; align-items: center; gap: 7px; }
+
+.brand-pick-label { font-size: 12.5px; color: var(--text-faint); }
+
+.brand-pick select {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  max-width: 220px;
+  cursor: pointer;
+}
+
+.brand-pick select:hover { background: var(--surface); }
+
+/* --- forms -------------------------------------------------------------- */
+
+.form { display: flex; flex-direction: column; gap: 18px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.field > span { font-size: 13px; font-weight: 550; }
+
+.field input {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.field input::placeholder { color: var(--text-faint); }
+
+.field small { font-size: 12.5px; color: var(--text-faint); line-height: 1.5; }
+
+.form-actions { display: flex; align-items: center; gap: 10px; }
+
+/* The form's failure sits in the flow. The top bar's cannot, which is why
+   .run-now-error is absolute and this is not. */
+.form-error {
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  background: var(--negative-wash);
+  color: var(--negative);
+}
+
+.link { color: var(--accent-strong); text-decoration: underline; }
+
 /* --- hero --------------------------------------------------------------- */
 
 .hero { padding: 52px 0 8px; }

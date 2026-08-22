@@ -53,6 +53,27 @@ export interface Pulse {
   errors: string[];
 }
 
+/** GET /api/brands, the list the picker in the top bar offers. */
+export interface BrandSummary {
+  id: string;
+  name: string;
+  website?: string;
+}
+
+/** POST /api/brands. `onboarder_error` is present only when that agent failed. */
+export interface CreatedBrand {
+  brand_id: string;
+  onboarder_error?: string;
+}
+
+/** What the form sends. The BFF's `newBrandFrom` decides what is acceptable. */
+export interface NewBrand {
+  name: string;
+  website: string;
+  keywords: string[];
+  competitors: string[];
+}
+
 /** A first paint that hangs is worse than one that says the backend is down. */
 const REQUEST_TIMEOUT_MS = 8_000;
 
@@ -62,6 +83,23 @@ const REQUEST_TIMEOUT_MS = 8_000;
  * orchestrator produces the BFF's named timeout rather than a bare abort here.
  */
 const START_RUN_TIMEOUT_MS = 125_000;
+
+/**
+ * Creating a brand waits on bp-onboarder crawling a website, so it gets the
+ * same treatment as a run: a budget just above the BFF's own ONBOARDER_TIMEOUT_MS
+ * default of 45000, so a slow agent produces the BFF's named answer rather than
+ * a bare abort here. The BFF falls back to the typed keywords on its own
+ * timeout, so this ceiling is reached only if the BFF itself has stopped.
+ */
+const CREATE_BRAND_TIMEOUT_MS = 50_000;
+
+export async function fetchBrands(): Promise<Fetched<BrandSummary[]>> {
+  return answered(await getJson<BrandSummary[]>("/api/brands"));
+}
+
+export async function createBrand(brand: NewBrand): Promise<Fetched<CreatedBrand>> {
+  return answered(await postJson<CreatedBrand>("/api/brands", brand, CREATE_BRAND_TIMEOUT_MS));
+}
 
 export async function fetchPulse(brandId: string): Promise<Fetched<Pulse>> {
   return answered(await getJson<Pulse>(`/api/brands/${encode(brandId)}/pulse`));
@@ -87,13 +125,20 @@ export async function fetchRun(runId: string): Promise<Fetched<RunRecord>> {
 }
 
 /**
- * POST /api/runs, the one write path the dashboard has. The body is the two
- * fields `runInputFrom` in bff/src/routes/runs.ts requires. `window_hours` and
- * `force` are deliberately not sent: the orchestrator owns how far back a run
- * looks, and a number chosen here would be the dashboard setting that policy.
+ * POST /api/runs, the dashboard's run path. `brand_id` and `trigger` are the
+ * two fields `runInputFrom` in bff/src/routes/runs.ts requires; `window_hours`
+ * is forwarded only when the caller chose one, because Go decodes an absent
+ * field as 0 and 0 is a window of zero hours, not a request for the default.
+ * `force` is never sent: nothing on this screen asks to override a guard.
  */
-export async function startRun(brandId: string, trigger: RunKind): Promise<Fetched<RunRecord>> {
-  const body = { brand_id: brandId, trigger };
+export async function startRun(
+  brandId: string,
+  trigger: RunKind,
+  windowHours?: number,
+): Promise<Fetched<RunRecord>> {
+  const body = windowHours === undefined
+    ? { brand_id: brandId, trigger }
+    : { brand_id: brandId, trigger, window_hours: windowHours };
   return answered(await postJson<RunRecord>("/api/runs", body, START_RUN_TIMEOUT_MS));
 }
 

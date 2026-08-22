@@ -7,7 +7,8 @@
 // fetch.
 
 import type { Metadata } from "next";
-import { RunNowButton } from "@/components/RunNowButton";
+import { Suspense } from "react";
+import { BrandBar } from "@/components/BrandBar";
 import { brandId } from "@/lib/brand";
 import "./globals.css";
 
@@ -46,7 +47,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               )}
             </nav>
             <div className="spacer" />
-            <RunNowButton brandId={brandId()} />
+            {/* BrandBar reads the selected brand from the URL, and a component
+                that calls useSearchParams has to sit under a Suspense boundary
+                or every route that renders this layout opts out of static
+                prerendering. The fallback is empty because the bar carries no
+                value worth showing before it knows which brand is on screen. */}
+            <Suspense fallback={null}>
+              <BrandBar defaultBrandId={brandId()} />
+            </Suspense>
           </div>
         </header>
         <main className="shell">{children}</main>

@@ -6,9 +6,10 @@ white, cyan accent, hairline borders instead of shadows, 10px radii.
 
 ## What this module owns
 
-The one screen a judge looks at: a brand's pulse, the live alert feed, the
-mention stream, the topics, the drafted reply, and a run report that shows what
-Nasiko, Anakin and DronaHQ each did.
+The screen a judge looks at: a brand's pulse, the live alert feed, the mention
+stream, the topics, the drafted reply, and a run report that shows what Nasiko,
+Anakin and DronaHQ each did. Plus the one screen that comes before it, where a
+brand owner types their brand in and gets a dashboard for it.
 
 Since the 2026-09-20 scope change this is the primary alert surface, not a
 secondary one. Time-to-alert is measured to this UI, so the feed polls rather
@@ -31,11 +32,15 @@ than rendering one server-side snapshot.
 |---|---|
 | `app/page.tsx` | The dashboard. Awaits the BFF and composes the panels, owns no logic. |
 | `app/layout.tsx` | Document shell and top bar. Holds no product state and no label. |
+| `app/brands/new/page.tsx` | Where a brand owner starts. A heading and the form. |
+| `components/NewBrandForm.tsx` | Four fields, one POST, then that brand's dashboard. |
+| `components/BrandBar.tsx` | The top bar's brand controls: which brand, switch, add. |
+| `app/api/brands/route.ts` | Proxies the brand list and the create, for the reason below. |
 | `components/DataSourceBadge.tsx` | Says what the data is, derived from the payload. |
 | `app/api/alerts/route.ts` | Proxies the alert poll so the browser never learns the BFF's URL. |
 | `app/api/runs/route.ts` | Proxies the on-demand run start, for the same reason. |
 | `components/RunNowButton.tsx` | The top bar's one action. Starts a run and reports the failure. |
-| `lib/brand.ts` | Which brand this deployment monitors. Throws when nothing says. |
+| `lib/brand.ts` | The default brand and the selected one. Throws when nothing says. |
 | `app/loading.tsx` | Panel frames while the fetch is in flight. Holds no values. |
 | `app/error.tsx` | Says the backend is unreachable. Substitutes nothing. |
 | `lib/pulse.ts` | The BFF fetches. The only file here that knows the backend exists. |
@@ -76,7 +81,20 @@ than rendering one server-side snapshot.
   place the choice is made, because the page and the top bar have to reach the
   same answer. A default brand id is a brand with no row in Postgres, and this
   dashboard renders an unknown brand as empty panels, which reads as a quiet day
-  rather than as a misconfiguration.
+  rather than as a misconfiguration. `BRAND_ID` is now the default rather than
+  the only brand: `?brand=` in the URL selects one, `selectedBrandId` resolves
+  the two, and the picker in `BrandBar` is what writes that parameter. The
+  picker always navigates to `/`, because switching brands means looking at that
+  brand's dashboard and not at whatever page is open.
+- **Run now sends a 504 hour window, and that number is load-bearing.**
+  `RunNowButton` asks for 21 days because the recorded Anakin corpus was
+  captured over 21 days and reddit's fixture key includes a time bucket derived
+  from the width of the collection window, so a shorter window hashes to files
+  that were never recorded and the run collects nothing. The Go default of 24 is
+  deliberately not changed. A brand typed into the form has no recorded
+  fixtures at all, so under `BP_FIXTURE_MODE=replay` its runs report missing
+  fixtures per source and collect nothing: the flow is real, the corpus is only
+  the demo brand's.
 - **An empty panel is a sentence, never a blank box or a zero.** Every panel has
   a written empty state naming what is missing and which agent fills it. Zero
   alerts is a success state and says so, with the window it has been watching.
@@ -97,9 +115,9 @@ than rendering one server-side snapshot.
   in a mount effect and the sentence that carries it is absent until it exists,
   which is also the honest reading: the feed has not started watching until it is
   alive in a browser. Nothing stands in for it in the meantime.
-- **Every button either does something or says it cannot.** The dashboard has one
-  working action, Run now, and it reports its own failure on screen rather than
-  in a console nobody has open. The draft and alert actions have no route in the
+- **Every button either does something or says it cannot.** The working actions
+  are Run now, the brand picker and the new-brand form, and each reports its own
+  failure on screen rather than in a console nobody has open. The draft and alert actions have no route in the
   BFF, so they are `disabled` with a `title` saying so, and the five unbuilt nav
   sections are labels rather than anchors to `#`. Wiring one of them up means
   adding the BFF route first; do not add a handler that pretends.

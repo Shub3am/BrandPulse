@@ -18,14 +18,22 @@ import { PlatformPanel } from "@/components/PlatformPanel";
 import { RunNotice } from "@/components/RunNotice";
 import { StatRow } from "@/components/StatRow";
 import { TopicList } from "@/components/TopicList";
-import { brandId } from "@/lib/brand";
+import { BRAND_PARAM, selectedBrandId } from "@/lib/brand";
 import { fetchPulse } from "@/lib/pulse";
 
 /** Every paint is a fresh read. A cached crisis from an hour ago is not news. */
 export const dynamic = "force-dynamic";
 
-export default async function PulsePage() {
-  const { answeredBy, data: pulse } = await fetchPulse(brandId());
+export default async function PulsePage({
+  searchParams,
+}: {
+  // Awaited, because searchParams is a promise in this version of Next.
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const requested = (await searchParams)[BRAND_PARAM];
+  const { answeredBy, data: pulse } = await fetchPulse(
+    selectedBrandId(typeof requested === "string" ? requested : undefined),
+  );
   const { profile, brief, run, drafts } = pulse;
   const draft = drafts[0];
 

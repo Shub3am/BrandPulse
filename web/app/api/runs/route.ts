@@ -3,9 +3,10 @@
 // the backend is deployed and therefore cannot be inlined into a bundle at image
 // build time.
 //
-// It forwards two fields and returns the BFF's RunRecord unchanged. It validates
-// nothing beyond their presence, because `runInputFrom` in bff/src/routes/runs.ts
-// is the one place that decides what a run request is allowed to say.
+// It forwards three fields and returns the BFF's RunRecord unchanged. It
+// validates nothing beyond their presence, because `runInputFrom` in
+// bff/src/routes/runs.ts is the one place that decides what a run request is
+// allowed to say.
 
 import { startRun } from "@/lib/pulse";
 import type { RunKind } from "@/lib/types";
@@ -21,7 +22,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "body must be JSON" }, { status: 400 });
   }
 
-  const fields = (body ?? {}) as { brand_id?: unknown; trigger?: unknown };
+  const fields = (body ?? {}) as {
+    brand_id?: unknown;
+    trigger?: unknown;
+    window_hours?: unknown;
+  };
   if (typeof fields.brand_id !== "string" || fields.brand_id === "") {
     return Response.json({ error: "brand_id is required" }, { status: 400 });
   }
@@ -29,8 +34,12 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "trigger is required" }, { status: 400 });
   }
 
+  // Absent stays absent. Coercing a missing window_hours to a number here would
+  // send the orchestrator a window this route chose.
+  const windowHours = typeof fields.window_hours === "number" ? fields.window_hours : undefined;
+
   try {
-    const answered = await startRun(fields.brand_id, fields.trigger as RunKind);
+    const answered = await startRun(fields.brand_id, fields.trigger as RunKind, windowHours);
     return Response.json(answered.data);
   } catch (cause) {
     // 502, not 500: the dashboard is up and the backend behind it is not, and the
