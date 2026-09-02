@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,9 +36,28 @@ func NewPostgresStore(pool *pgxpool.Pool) PostgresStore {
 // jsonb marshals a value for a jsonb column. pgx encodes a Go slice as a
 // Postgres array by default, which is the wrong type for every jsonb column in
 // 001_init.sql, so the conversion is explicit everywhere.
+//
+// A nil slice becomes [] and a nil map becomes {}, never JSON null. Every jsonb
+// column in 001_init.sql apart from the two payload columns is declared NOT
+// NULL DEFAULT '[]' or '{}', and the literal null satisfies NOT NULL: Postgres
+// checks for a SQL NULL, not for a JSON one. So writing null here puts a value
+// in the table that the column promises cannot be there, every reader that
+// unmarshals it gets a nil back, and the dashboard throws on the first .join.
+// Checking v == nil is not enough because a nil []string arrives boxed in a
+// non-nil interface, which is exactly how this got through the first time.
 func jsonb(v any) ([]byte, error) {
 	if v == nil {
 		return []byte("null"), nil
+	}
+	switch value := reflect.ValueOf(v); value.Kind() {
+	case reflect.Slice:
+		if value.IsNil() {
+			return []byte("[]"), nil
+		}
+	case reflect.Map:
+		if value.IsNil() {
+			return []byte("{}"), nil
+		}
 	}
 	return json.Marshal(v)
 }
