@@ -17,7 +17,8 @@ Return JSON matching the supplied schema: an object with one key,
 
 Every object carries the `mention_id` **exactly as given in the input**. The
 caller joins on it and does not rely on your ordering. Never invent, reorder or
-merge ids, and never drop a mention: a batch of twelve returns twelve objects.
+merge ids, and never drop a mention: this batch holds {{.Count}} mentions, so
+`enrichments` holds exactly {{.Count}} objects. Count them before you answer.
 
 Fields:
 

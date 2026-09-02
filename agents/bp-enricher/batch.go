@@ -73,6 +73,7 @@ func buildPrompt(batch []models.Mention, redacted map[string]string, profile mod
 		Keywords         string
 		NegativeKeywords string
 		Competitors      string
+		Count            int
 		Mentions         string
 	}{
 		BrandName:        profile.Name,
@@ -80,7 +81,13 @@ func buildPrompt(batch []models.Mention, redacted map[string]string, profile mod
 		Keywords:         list(profile.Keywords),
 		NegativeKeywords: list(profile.NegativeKeywords),
 		Competitors:      list(profile.Competitors),
-		Mentions:         string(encoded),
+		// The real size of this batch, not a figure written into the prompt.
+		// The template used to say "a batch of twelve returns twelve objects"
+		// while the payload carried fifty, and a model that believes the
+		// sentence stops at twelve: the rest come back as the omissions
+		// parseReply reports and the handler degrades to neutral.
+		Count:    len(batch),
+		Mentions: string(encoded),
 	})
 	if err != nil {
 		return "", fmt.Errorf("render enricher prompt: %w", err)
