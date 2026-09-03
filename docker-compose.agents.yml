@@ -147,11 +147,16 @@ services:
       # Config.FixtureDir to the relative path "fixtures", resolved against the
       # process working directory, so the corpus has to land there.
       #
-      # Bind-mounted rather than COPYed into the image so B2's recording
-      # session is a file write on the host, not nine rebuilds. Read-only
-      # because a container that can write here can corrupt the corpus every
-      # other track's tests replay from.
-      - ./fixtures:/app/fixtures:ro
+      # Bind-mounted rather than COPYed into the image so a recording session
+      # is a file write on the host, not nine rebuilds.
+      #
+      # Writable, not read-only. BP_FIXTURE_MODE=record calls Anakin for real
+      # and then writes the response here, which is how onboarding a brand
+      # nobody has recorded yet becomes free to rehearse afterwards. A
+      # read-only mount makes record mode fail on the write, after the credits
+      # are already spent, which is the worst of both. The corpus is protected
+      # by git rather than by the mount: a bad recording shows up as a diff.
+      - ./fixtures:/app/fixtures
 
   bp-collector:
     <<: *agent
@@ -164,7 +169,8 @@ services:
     volumes:
       # WORKDIR /app here too. The five agents whose Dockerfile leaves WORKDIR
       # at / get no mount at all, because none of them builds an anakin client.
-      - ./fixtures:/app/fixtures:ro
+      # Writable for the same reason as bp-onboarder above: record mode writes.
+      - ./fixtures:/app/fixtures
 
   bp-enricher:
     <<: *agent
