@@ -15,6 +15,7 @@
 
 import type { AnsweredBy } from "@/lib/pulse";
 import type { EnrichedMention } from "@/lib/types";
+import { listOf } from "@/lib/wire";
 
 interface DataSourceProps {
   answeredBy: AnsweredBy;
@@ -25,11 +26,17 @@ interface DataSourceProps {
 /** `raw` is the collector's untouched payload, so this reads the producer's own
     marker. A missing `raw` is not synthetic: it is a row nobody marked. */
 function countSynthetic(mentions: EnrichedMention[]): number {
-  return mentions.filter(({ mention }) => mention.raw?.synthetic === true).length;
+  return listOf(mentions).filter((item) => item.mention?.raw?.synthetic === true).length;
+}
+
+/** The rows actually rendered, which is what both sentences below count over. */
+function rendered(mentions: EnrichedMention[]): number {
+  return listOf(mentions).length;
 }
 
 export function DataSourceBadge({ answeredBy, mentions }: DataSourceProps) {
   const synthetic = countSynthetic(mentions);
+  const total = rendered(mentions);
 
   if (synthetic === 0) {
     return (
@@ -40,9 +47,9 @@ export function DataSourceBadge({ answeredBy, mentions }: DataSourceProps) {
     );
   }
 
-  if (synthetic === mentions.length) {
+  if (synthetic === total) {
     return (
-      <span className="pill" style={{ color: "var(--warn)" }}>
+      <span className="pill pill-warn">
         <i className="dot" />
         synthetic data
       </span>
@@ -50,7 +57,7 @@ export function DataSourceBadge({ answeredBy, mentions }: DataSourceProps) {
   }
 
   return (
-    <span className="pill" style={{ color: "var(--warn)" }}>
+    <span className="pill pill-warn">
       <i className="dot" />
       {synthetic} injected mention{synthetic === 1 ? "" : "s"}
     </span>
@@ -59,15 +66,16 @@ export function DataSourceBadge({ answeredBy, mentions }: DataSourceProps) {
 
 export function DataSourceFootnote({ answeredBy, mentions }: DataSourceProps) {
   const synthetic = countSynthetic(mentions);
+  const total = rendered(mentions);
 
   // Live data gets no footnote. A standing "some of this may be synthetic"
   // disclaimer is the kind of label a reader learns to stop seeing.
   if (synthetic === 0) return null;
 
-  if (synthetic === mentions.length) {
+  if (synthetic === total) {
     return (
       <p className="footnote">
-        Every mention on this page is synthetic. All {mentions.length} of them are marked{" "}
+        Every mention on this page is synthetic. All {total} of them are marked{" "}
         <span className="mono">raw.synthetic</span> by whatever produced them, and they
         reached this page through {answeredBy} like any other row. No figure here was
         measured from a real conversation.
@@ -78,9 +86,9 @@ export function DataSourceFootnote({ answeredBy, mentions }: DataSourceProps) {
   return (
     <p className="footnote">
       This is a real run with synthetic mentions injected into it:{" "}
-      {synthetic} of the {mentions.length} mentions on this page are marked{" "}
+      {synthetic} of the {total} mentions on this page are marked{" "}
       <span className="mono">raw.synthetic</span> by whatever injected them. The other{" "}
-      {mentions.length - synthetic} were collected, and the alerts above were fired by
+      {total - synthetic} were collected, and the alerts above were fired by
       rules over both.
     </p>
   );

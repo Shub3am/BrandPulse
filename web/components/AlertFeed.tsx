@@ -59,7 +59,9 @@ export function AlertFeed({ brandId, initial }: { brandId: string; initial: Aler
         if (!response.ok) {
           setPollError(errorMessage(body) ?? `the backend answered ${response.status}`);
         } else {
-          const arrived = body as Alert[];
+          // A 200 carrying something that is not an array is a backend that
+          // changed shape, not a page that should throw on .length.
+          const arrived = Array.isArray(body) ? (body as Alert[]) : [];
           const receivedAt = new Date().toISOString();
           setPollError(null);
           if (arrived.length > 0) {
@@ -86,16 +88,20 @@ export function AlertFeed({ brandId, initial }: { brandId: string; initial: Aler
     };
   }, [brandId]);
 
+  // Formatted once. A browser clock that cannot be formatted is not printed at
+  // all, rather than printed as "Invalid Date".
+  const watchClock = clockTime(watchingSince);
+
   return (
     <div className="feed">
       <div className="feed-status">
-        <span className="pill">
-          <i className="dot" style={{ background: pollError ? "var(--warn)" : "var(--accent)" }} />
+        <span className={pollError ? "pill pill-warn" : "pill pill-positive"}>
+          <i className="dot dot-live" />
           {pollError ? "feed stalled" : "watching live"}
         </span>
-        {watchingSince && (
+        {watchClock && (
           <span className="note">
-            since {clockTime(watchingSince)} IST, every {POLL_INTERVAL_MS / 1000}s
+            since {watchClock} IST, polling every {POLL_INTERVAL_MS / 1000}s
           </span>
         )}
         {pollError && <span className="note push-right">last poll failed: {pollError}</span>}
@@ -103,9 +109,10 @@ export function AlertFeed({ brandId, initial }: { brandId: string; initial: Aler
 
       {alerts.length === 0 ? (
         <p className="empty">
-          No alerts for {brandId}. This feed has seen nothing fire, which is the good
-          outcome.
-          {watchingSince && ` It has been watching since ${clockTime(watchingSince)} IST.`}
+          <b>Nothing has fired for {brandId}.</b>
+          This feed has seen no threshold crossed, which is the good outcome rather than a
+          gap in the data.
+          {watchClock && ` It has been watching since ${watchClock} IST.`}
         </p>
       ) : (
         alerts.map((alert) => (

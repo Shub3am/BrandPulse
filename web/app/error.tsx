@@ -41,7 +41,7 @@ export default function DashboardError({
         </p>
       </div>
 
-      <div className="draft-actions">
+      <div className="alert-foot">
         <button className="btn btn-primary" onClick={reset}>
           Try the fetch again
         </button>

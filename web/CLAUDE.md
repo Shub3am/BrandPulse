@@ -1,8 +1,9 @@
 # web/: the product dashboard
 
 Next.js 16 App Router, React 19, TypeScript, plain CSS. No Tailwind, no
-component library, no state manager. The theme is taken from anakin.io: light,
-white, cyan accent, hairline borders instead of shadows, 10px radii.
+component library, no state manager. The theme is a dense dark analytics
+surface: near-black ground, cyan accent, hairline borders instead of shadows,
+12px radii, tabular numerals on every figure.
 
 ## What this module owns
 
@@ -47,6 +48,11 @@ than rendering one server-side snapshot.
 | `lib/types.ts` | The wire format, mirrored from `internal/models/models.go`. |
 | `lib/demoData.ts` | Synthetic sample artifacts. Nothing under `app/` imports it. |
 | `lib/format.ts` | Display formatting. No business rules. |
+| `lib/wire.ts` | Reads a nullable wire value into something renderable. See below. |
+| `lib/derive.ts` | Counts what is on screen for display. No business rules. |
+| `components/KpiStrip.tsx` | The six headline cells, each a payload figure or a sentence. |
+| `components/SentimentMeter.tsx` | The segmented sentiment bar. CSS only, no chart library. |
+| `components/BriefPanel.tsx` | The daily brief: its figures lifted out, its markdown as blocks. |
 | `scripts/checkTypesParity.mjs` | Fails the build when a mirror drifts from `models.go`. |
 | `components/*.tsx` | One component per panel, each named for what it renders. |
 | `Dockerfile` | The runtime image. Its build context is the repo root, see below. |
@@ -101,6 +107,26 @@ than rendering one server-side snapshot.
   Partial data renders, with `RunNotice` above it printing what the payload said
   went wrong. Nothing is ever stood in for: no cached figure, no last-known
   number and no placeholder digit, including in `loading.tsx`.
+- **Every wire read goes through `lib/wire.ts`.** `lib/types.ts` describes what
+  the contract promises, not what arrives: Go marshals a nil slice as `null`,
+  the jsonb columns are nullable, and the BFF maps a SQL NULL to `undefined`.
+  TypeScript cannot see any of that, because the payload is JSON at runtime.
+  This dashboard has already crashed in production on
+  `enrichment.aspects.join(", ")`. So no component calls `.join`, `.map`,
+  `.length` or `.toFixed` on a wire value directly: `listOf` returns an array
+  with the holes dropped, `mapOf` an object, `textOf` a non-empty string or
+  null, `numberOf` a finite number or null, and the component picks a sentence
+  when it gets null. A list of aspects, do-not-say lines or sources is rendered
+  as chips, never joined into one string.
+- **The sentiment meter is CSS and SVG, and there is no chart dependency.**
+  `package.json` carries Next, React and the types, and nothing else belongs in
+  it. A chart library would also bring its own colours, which would break the
+  tokens-only rule below.
+- **A price on the KPI strip is labelled as a price.** Five of the six cells in
+  `KpiStrip` are counted from the payload. The sixth compares the two list
+  prices, which are copy rather than measurements, so they are declared once at
+  the top of that file and the cell says so on screen. Nothing else on this
+  page may carry a figure that did not come off the wire.
 - **`RunNotice` reports, it does not judge.** It prints `status`,
   `sources_skipped`, `degraded_reason` and both `errors` arrays as they arrived.
   It does not map a status to a severity and its CSS is deliberately neutral,

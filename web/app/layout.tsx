@@ -31,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="topbar">
           <div className="topbar-inner">
             <div className="wordmark">
+              <i className="wordmark-mark" aria-hidden="true" />
               Brand<span>Pulse</span>
             </div>
             <nav className="topbar-nav">

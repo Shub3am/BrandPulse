@@ -11,6 +11,8 @@
 // proof, and absence is also what a missing field looks like.
 
 import type { RunRecord } from "@/lib/types";
+import { count } from "@/lib/format";
+import { listOf, numberOf, textOf } from "@/lib/wire";
 
 /**
  * `errors` is the transport-level array from the /pulse artifact. It is separate
@@ -19,36 +21,49 @@ import type { RunRecord } from "@/lib/types";
  * one is not.
  */
 export function RunNotice({ run, errors }: { run: RunRecord | null; errors: string[] }) {
-  const reported = run ? [...errors, ...run.errors] : errors;
+  const reported = [...listOf(errors), ...listOf(run?.errors)]
+    .map((message) => textOf(message))
+    .filter((message): message is string => message !== null);
+
   if (!run && reported.length === 0) return null;
+
+  const skipped = listOf(run?.sources_skipped)
+    .map((source) => textOf(source))
+    .filter((source): source is string => source !== null);
+  const attempted = numberOf(run?.sources_attempted?.length);
+  const collected = numberOf(run?.mentions_collected);
+  const degraded = textOf(run?.degraded_reason);
+  const status = textOf(run?.status);
+  const runId = textOf(run?.id);
 
   return (
     <div className="notice">
       {run && (
         <p>
-          Run <span className="mono">{run.id}</span> reported status <b>{run.status}</b>,
-          collecting {run.mentions_collected} mentions from{" "}
-          {run.sources_attempted.length} attempted sources.
+          Run <span className="mono">{runId ?? "with no id"}</span> reported status{" "}
+          <b>{status ?? "none"}</b>, collecting{" "}
+          {collected === null ? "an unrecorded number of" : count(collected)} mentions from{" "}
+          {attempted === null ? "an unrecorded number of" : count(attempted)} attempted sources.
         </p>
       )}
 
-      {run && run.sources_skipped.length > 0 && (
+      {skipped.length > 0 && (
         <p>
-          Skipped: <b>{run.sources_skipped.join(", ")}</b>. No count, chart or sentence on
-          this page includes anything from {run.sources_skipped.length === 1 ? "it" : "them"}.
+          Skipped: <b>{skipped.join(", ")}</b>. No count, chart or sentence on this page
+          includes anything from {skipped.length === 1 ? "it" : "them"}.
         </p>
       )}
 
-      {run?.degraded_reason && (
+      {degraded && (
         <p>
-          Degraded, in the orchestrator&rsquo;s own words: <b>{run.degraded_reason}</b>
+          Degraded, in the orchestrator&rsquo;s own words: <b>{degraded}</b>
         </p>
       )}
 
       {reported.length > 0 && (
         <>
           <p>
-            {reported.length} error{reported.length === 1 ? "" : "s"} came back with this
+            {count(reported.length)} error{reported.length === 1 ? "" : "s"} came back with this
             payload. What arrived is rendered below; what did not is absent rather than
             filled in.
           </p>

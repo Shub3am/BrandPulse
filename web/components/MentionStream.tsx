@@ -1,74 +1,143 @@
-// The live mention feed: each row is a Mention joined to its Enrichment.
+// The mention feed: each row is a Mention joined to its Enrichment.
 //
-// The bar is coloured from the label bp-enricher assigned, not from a cutoff
-// applied here. A second classifier in the browser could paint a red bar beside
-// a "neutral" pill, and would be a rule `nasiko observe` cannot see.
+// The sentiment pill is coloured from the label bp-enricher assigned, not from
+// a cutoff applied here. A second classifier in the browser could paint a red
+// pill beside a "neutral" label, and would be a rule `nasiko observe` cannot
+// see.
+//
+// Every field on a row is optional at runtime even where the mirrored type says
+// otherwise: `mentions.engagement` is JSONB DEFAULT '{}', an author can be
+// absent on a review, and `aspects` arrives as null when the enricher found
+// none. An absent count is not zero, so the part is dropped rather than printed
+// as a figure nobody measured.
 
-import type { Engagement, EnrichedMention, SentimentLabel } from "@/lib/types";
-import { clockTime, humanLabel, SENTIMENT_COLOR } from "@/lib/format";
+import type { CSSProperties } from "react";
+import type { Engagement, EnrichedMention, Enrichment, Mention } from "@/lib/types";
+import { clockTime, count, humanLabel, sentimentColor } from "@/lib/format";
+import { listOf, numberOf, textOf } from "@/lib/wire";
 
-/**
- * The Go struct requires all four counts, but `mentions.engagement` is
- * `JSONB DEFAULT '{}'` in Postgres, so a count can be absent on the wire. An
- * absent count is not zero: printing "0 likes" for a row we never measured would
- * be inventing a measurement, and printing "undefined likes" is just broken.
- * Either way the part is dropped.
- */
-function EngagementCounts({ engagement }: { engagement: Engagement }) {
-  const parts = [
-    Number.isFinite(engagement.likes) ? `${engagement.likes} likes` : null,
-    Number.isFinite(engagement.replies) ? `${engagement.replies} replies` : null,
-  ].filter((part) => part !== null);
-  return parts.length > 0 ? <span>{parts.join(" · ")}</span> : null;
+function EngagementCounts({ engagement }: { engagement: Engagement | null | undefined }) {
+  const parts: [label: string, value: number][] = [];
+  for (const [label, key] of [
+    ["likes", "likes"],
+    ["replies", "replies"],
+    ["shares", "shares"],
+    ["views", "views"],
+  ] as const) {
+    const value = numberOf(engagement?.[key]);
+    if (value !== null) parts.push([label, value]);
+  }
+
+  if (parts.length === 0) return null;
+
+  return (
+    <>
+      {parts.map(([label, value]) => (
+        <span key={label}>
+          <b>{count(value)}</b> {label}
+        </span>
+      ))}
+    </>
+  );
 }
 
-function SentimentBar({ score, label }: { score: number; label: SentimentLabel }) {
-  // Centre is neutral, so the bar grows left for negative and right for positive.
-  const width = Math.abs(score) * 50;
+function SentimentPill({ enrichment }: { enrichment: Enrichment | null | undefined }) {
+  const label = enrichment?.sentiment_label;
+  if (!label) return null;
+  const score = numberOf(enrichment?.sentiment);
   return (
-    <span className="sentiment-bar" title={`${label} ${score.toFixed(2)}`}>
-      <i
-        style={{
-          background: SENTIMENT_COLOR[label],
-          width: `${width}%`,
-          left: score < 0 ? `${50 - width}%` : "50%",
-        }}
-      />
+    <span className="sentiment-pill" style={{ "--tone": sentimentColor(label) } as CSSProperties}>
+      {label}
+      {score !== null && <span className="sentiment-score">{score.toFixed(2)}</span>}
     </span>
   );
 }
 
-export function MentionStream({ items }: { items: EnrichedMention[] }) {
+/** Aspects are chips, one per aspect. A joined string is a list pretending to
+    be a sentence, and joining a null one is how this page last crashed. */
+function AspectChips({ aspects }: { aspects: string[] | null | undefined }) {
+  const named = listOf(aspects)
+    .map((aspect) => textOf(aspect))
+    .filter((aspect): aspect is string => aspect !== null);
+
+  if (named.length === 0) return null;
+
   return (
-    <div className="card">
-      {items.map(({ mention, enrichment }) => (
-        <article className="mention" key={mention.id}>
-          <div className="mention-head">
-            <span className="pill">{mention.source}</span>
-            <span className="pill" style={{ color: SENTIMENT_COLOR[enrichment.sentiment_label] }}>
-              {enrichment.sentiment_label}
-            </span>
-            <SentimentBar score={enrichment.sentiment} label={enrichment.sentiment_label} />
-            <span>{mention.author}</span>
-            {mention.author_followers > 0 && (
-              <span className="pill pill-accent">
-                {(mention.author_followers / 1000).toFixed(0)}k followers
-              </span>
-            )}
-            {mention.rating !== undefined && <span>{"★".repeat(mention.rating)}</span>}
-            <span className="push-right">{clockTime(mention.posted_at)}</span>
-          </div>
+    <>
+      <span className="chips-label">aspects</span>
+      {named.map((aspect) => (
+        <span className="chip chip-aspect" key={aspect}>
+          {aspect}
+        </span>
+      ))}
+    </>
+  );
+}
 
-          <p className="mention-text">{mention.text}</p>
+function MentionRow({ mention, enrichment }: { mention: Mention; enrichment: Enrichment | null }) {
+  const author = textOf(mention.author);
+  const followers = numberOf(mention.author_followers);
+  const rating = numberOf(mention.rating);
+  const posted = clockTime(mention.posted_at);
+  const intent = humanLabel(enrichment?.intent);
+  const emotion = humanLabel(enrichment?.emotion);
+  const matched = textOf(mention.matched_keyword);
+  const url = textOf(mention.url);
 
-          <div className="mention-foot">
-            <span>{humanLabel(enrichment.intent)}</span>
-            <span>{enrichment.aspects.join(", ")}</span>
-            {/* Component counts, not a total: "which engagement counts" is a
-                clusterer rule and lives in models.Engagement.Total. */}
-            <EngagementCounts engagement={mention.engagement} />
-          </div>
-        </article>
+  return (
+    <article className="mention">
+      <div className="mention-head">
+        <span className="source-badge">
+          <i />
+          {textOf(mention.source) ?? "source not recorded"}
+        </span>
+        <SentimentPill enrichment={enrichment} />
+        {author && <span className="mention-author">{author}</span>}
+        {followers !== null && followers > 0 && (
+          <span className="chip">{count(followers)} followers</span>
+        )}
+        {rating !== null && rating > 0 && rating <= 5 && (
+          <span className="chip" style={{ color: "var(--warn)" }}>
+            {"★".repeat(Math.round(rating))}
+          </span>
+        )}
+        {posted && <span className="push-right">{posted} IST</span>}
+      </div>
+
+      <p className="mention-text">{textOf(mention.text) ?? "This mention arrived with no text."}</p>
+
+      <div className="chips">
+        {intent && <span className="chip">{intent}</span>}
+        {emotion && <span className="chip">{emotion}</span>}
+        <AspectChips aspects={enrichment?.aspects} />
+      </div>
+
+      <div className="mention-foot">
+        {/* Component counts, not a total: "which engagement counts" is a
+            clusterer rule and lives in models.Engagement.Total. */}
+        <EngagementCounts engagement={mention.engagement} />
+        {matched && <span>matched on &ldquo;{matched}&rdquo;</span>}
+        {url && (
+          <a className="link push-right" href={url} target="_blank" rel="noreferrer">
+            open source
+          </a>
+        )}
+      </div>
+    </article>
+  );
+}
+
+export function MentionStream({ items }: { items: EnrichedMention[] }) {
+  const rows = listOf(items).filter((item) => item.mention);
+
+  return (
+    <div className="card card-flush">
+      {rows.map((item, index) => (
+        <MentionRow
+          key={textOf(item.mention.id) ?? `mention-${index}`}
+          mention={item.mention}
+          enrichment={item.enrichment ?? null}
+        />
       ))}
     </div>
   );
