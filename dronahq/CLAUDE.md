@@ -20,14 +20,21 @@ anywhere, and that is the invariant to hold.
 
 | File | What it is |
 |---|---|
-| `README.md` | Import steps, variables to set, and the explicit "needs the console" list. Start here. |
-| `connectors/brandpulse-openapi.json` | The BFF's eight endpoints as an OpenAPI **3.0** spec. The one machine-importable file in this directory. |
-| `connectors/rest-connector.md` | The connector by hand: name, auth, base URL, eight endpoints. The checked source of truth; the spec file is the convenience. |
+| `README.md` | The public base URL, the ngrok header rule, and a router to the three SETUP guides. Start here. |
+| `connectors/SETUP.md` | **Click-by-click.** Create the connector, import the spec, add the ngrok header, test, save. Includes the Import cURL fallback. Do this one first. |
+| `chat-agent/SETUP.md` | **Click-by-click.** Create the agent, attach four tools, paste the Instruction, and three demo questions whose answers exist in the live data. |
+| `dashboard/SETUP.md` | **Click-by-click.** A ten-minute app: brand Dropdown, four Statistics tiles, a Table Grid of mentions, a Button on `startRun`. |
+| `connectors/brandpulse-openapi.json` | The BFF's eight endpoints as an OpenAPI **3.0.3** spec, `servers` pointed at the public ngrok URL. The one machine-importable file in this directory. |
+| `connectors/rest-connector.md` | Reference behind `connectors/SETUP.md`: every endpoint, default and ceiling, read out of `bff/src/routes/`. |
 | `chat-agent/system-prompt.md` | The agent's **Instruction**, pasted verbatim. Structured on DronaHQ's documented template. |
-| `chat-agent/agent-config.md` | Model, the four tools, triggers, cost, and the test script that catches a dishonest agent. |
-| `dashboard/build-spec.md` | Six screens, six queries, every bound field with its exact JSON path. |
+| `chat-agent/agent-config.md` | Reference behind `chat-agent/SETUP.md`: model, the four tools and why not six, triggers, cost. |
 | `dashboard/dashboard-app.json` | **Does not exist yet.** Produced by publishing the app and exporting it, then committed here. |
 | `screenshots/` | Does not exist yet. Proof for the PR and the pitch. |
+
+`dashboard/build-spec.md` became `dashboard/SETUP.md` on 2026-09-20. The
+six-screen design it carried was cut to the four controls a ten-minute demo
+build needs; the field-level bindings it verified survive inside the new file
+and in `connectors/rest-connector.md`.
 
 ## Invariants and gotchas
 
@@ -58,10 +65,16 @@ deliverable.
   the code is the source of truth. `bff/src/app.ts` registers CORS, `/health`
   and five route modules, and no auth hook anywhere. `POST /api/brands` makes
   this sharper than it was: an unauthenticated write that spends credits.
-- **Base URL is never a hardcoded host.** A dashboard wired to `localhost` dies
-  on stage. DronaHQ's documented per-connector mechanism is **Data
-  Environments**; there is no documented cloud-wide global variable for a base
-  URL, and `%DRONAHQ_SHARED_*%` is self-hosted only.
+- **The host lives on every endpoint, not in one base URL field.** DronaHQ's
+  REST API connector docs name **Connector name** and **Authentication** on the
+  connector screen and a **URL** field per endpoint; they do not document a
+  connector-wide Base URL field, so do not promise one. The live demo runs
+  through an ngrok tunnel whose host changes on every restart, which means a
+  stale host hides in eight endpoints. Re-importing a corrected
+  `brandpulse-openapi.json` is the fast fix. For staging versus production the
+  documented mechanism is **Data Environments**, reached from the three dots and
+  **Manage Environment**; there is no documented cloud-wide global variable for
+  a base URL, and `%DRONAHQ_SHARED_*%` is self-hosted only.
 - **DronaHQ variable names must not contain an underscore**, per DronaHQ's own
   docs. So `baseurl` and `brandid`, never `base_url`. This binds DronaHQ
   variable names only; our snake_case JSON keys are untouched.
@@ -87,9 +100,13 @@ deliverable.
   Transformations** in the connector query's Transform section, not DQL. DQL is
   XPath-inspired and has no `flatten`; "Query JSON using SQL" is a separate
   AlaSQL feature, useful for joining two queries.
-- **Read queries auto-run, write queries are Manual trigger.** The two options
-  are named "Every time variables change" and "Manual trigger". `startRun` is
-  manual, which is also the credit guard.
+- **Read queries auto-run, write queries are manual.** The control is a
+  dropdown named **Run query**, offering auto execution when a variable changes
+  or manual triggering. DronaHQ's docs paraphrase those two options rather than
+  printing them, so do not quote literal option strings; an earlier version of
+  this file quoted "Every time variables change" and "Manual trigger" as
+  verbatim labels and that was not sourced. `startRun` is manual, which is also
+  the credit guard.
 - **`since` on the alert feed is a `created_at` the route returned**, never a
   browser clock reading, because a fast clock skips an alert.
 

@@ -3,35 +3,36 @@
   "info": {
     "title": "BrandPulse BFF",
     "version": "1.0.0",
-    "description": "The eight HTTP endpoints DronaHQ calls, transcribed from bff/src/routes/.\n\nThis is a description of OUR API in a standard format. It is NOT a DronaHQ export file and DronaHQ did not produce it. It is here because DronaHQ documents an OpenAPI import for custom API connectors (Custom API connectors -> ... More Options -> Import API), and that import accepts an OpenAPI 3.0 spec as a JSON file. Hence 3.0.3 and not 3.1: 3.1 is not mentioned on that page, so this file stays inside what the docs actually claim to accept. That costs us JSON Schema's null type, so nullable fields below use OpenAPI 3.0's `nullable: true`.\n\nEvery path, query parameter, default, ceiling and response field was read out of bff/src/routes/*.ts, bff/src/contracts.ts and bff/src/rows.ts. Nothing here is aspirational: there is no drafts endpoint, no approve endpoint and no send endpoint, because the BFF has none.\n\nThere is no security scheme, because bff/ registers no auth hook on any route.\n\nI have not run this import. See dronahq/README.md for what is verified and what is not."
+    "description": "The BrandPulse backend-for-frontend. Seven routes plus a health check, read out of Postgres or forwarded from the agent mesh. No authentication. Two write routes, POST /api/runs and POST /api/brands, and both spend Anakin credits and LLM tokens. There is no approve, acknowledge, snooze or send route, and nothing in this API publishes anything anywhere.\n\nEVERY operation sends the header ngrok-skip-browser-warning with the value 1. Free ngrok answers browser-like clients with an HTML interstitial page unless that header is present, and DronaHQ would then receive HTML where it expects JSON. Do not remove it from any endpoint."
   },
   "servers": [
     {
-      "url": "{baseurl}",
-      "description": "The BrandPulse BFF. Never hardcode a host: this is the DronaHQ global variable 'baseurl'.",
-      "variables": {
-        "baseurl": {
-          "default": "http://localhost:8080",
-          "description": "Scheme, host and port, no trailing slash. http://localhost:8080 locally, the deployed BFF's origin on the cluster."
-        }
-      }
+      "url": "https://unknowing-tubby-thrive.ngrok-free.dev",
+      "description": "Public ngrok tunnel in front of the running BFF. This host changes every time the tunnel restarts. When it changes, re-import this file after updating servers.url here, or edit the URL field on each endpoint in the DronaHQ connector."
     }
+  ],
+  "tags": [
+    { "name": "Brands", "description": "The brand roster and brand creation." },
+    { "name": "Pulse", "description": "Everything the dashboard's first paint reads, in one call." },
+    { "name": "Mentions", "description": "The enriched mention stream." },
+    { "name": "Alerts", "description": "The alert feed." },
+    { "name": "Runs", "description": "Collection runs." },
+    { "name": "Health", "description": "Liveness." }
   ],
   "paths": {
     "/health": {
       "get": {
+        "tags": ["Health"],
         "operationId": "getHealth",
-        "summary": "Liveness. Touches no database.",
+        "summary": "Health check",
+        "description": "Cheap liveness probe. Does not touch Postgres. Use this as the first connector test, because it proves the tunnel, the header and the base URL in one call.",
+        "parameters": [{ "$ref": "#/components/parameters/NgrokSkipBrowserWarning" }],
         "responses": {
           "200": {
-            "description": "Alive.",
+            "description": "The BFF is up.",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": { "ok": { "type": "boolean" } },
-                  "required": ["ok"]
-                }
+                "schema": { "$ref": "#/components/schemas/Health" }
               }
             }
           }
@@ -40,90 +41,102 @@
     },
     "/api/brands": {
       "get": {
+        "tags": ["Brands"],
         "operationId": "listBrands",
-        "summary": "Every brand, for a picker. Three fields, not a profile.",
-        "description": "Unpaginated on purpose, per bff/src/db.ts: this feeds a picker in a top bar and a picker that hides the brand you just created is worse than a query returning a few extra rows. Ordered by `name` ascending. This is NOT a BrandProfile: the picker renders before a profile is chosen.",
+        "summary": "List brands",
+        "description": "Every brand in the account, ordered by name, unpaginated. Note the field name: this route returns the BFF's own picker shape and calls the identifier id, where every other response in this API calls it brand_id. A dropdown bound to brand_id renders a list of blanks.",
+        "parameters": [{ "$ref": "#/components/parameters/NgrokSkipBrowserWarning" }],
         "responses": {
           "200": {
-            "description": "Every brand in the database, ordered by name.",
+            "description": "The brand roster.",
             "content": {
               "application/json": {
-                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/BrandSummary" } }
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/BrandSummary" }
+                }
               }
             }
           }
         }
       },
       "post": {
+        "tags": ["Brands"],
         "operationId": "createBrand",
-        "summary": "Creates a brand and its confirmed profile. Spends credits.",
-        "description": "The BFF's second write route and the only one that writes a Postgres row itself. It asks bp-onboarder to turn a website into a keyword set, then persists the brand and a CONFIRMED profile, because submitting this form is the confirmation step CONTRACTS section 2 describes.\n\nThis costs money and it is not reversible from this API: there is no update route and no delete route. A profile is version 1 and nothing here writes a version 2.\n\nAn onboarder outage does NOT fail the call. The brand is still created from the keywords the owner typed and `onboarder_error` names the failure, so a 201 with that key present means the profile came from the form and not from the agent.",
+        "summary": "Create a brand",
+        "description": "Creates a brand and a first confirmed profile. Spends Anakin credits and LLM tokens: the route asks bp-onboarder to crawl the website and draft keywords. Returns 201, not 200, so a DronaHQ success condition written as statusCode == 200 treats every created brand as a failure. The returned brand_id is a slug of the name plus a random four-character tail and cannot be constructed client-side. When onboarder_error is present the brand was still created, from the typed keywords alone.",
+        "parameters": [{ "$ref": "#/components/parameters/NgrokSkipBrowserWarning" }],
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/NewBrand" } }
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateBrandRequest" }
+            }
           }
         },
         "responses": {
           "201": {
-            "description": "Created. The brand id was minted by the route, so read it from here rather than constructing it.",
+            "description": "The brand was created.",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/CreatedBrand" } }
-            }
-          },
-          "400": {
-            "description": "A missing name, a missing website, a website with no http(s) scheme, or keywords that are not a list of strings. Nothing is written.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
-            }
-          }
-        }
-      }
-    },
-    "/api/brands/{brandid}/pulse": {
-      "get": {
-        "operationId": "getBrandPulse",
-        "summary": "Everything the dashboard's first paint reads, in one call.",
-        "description": "Seven independent queries behind one request. A query that fails names itself in `errors` and leaves its slot empty; the other six still return, with HTTP 200. An empty `errors` array means every panel below is complete.",
-        "parameters": [
-          { "$ref": "#/components/parameters/brandid" },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "description": "How many mentions to embed. Default 50, silently capped at 200. Does not affect the alert, topic or draft slices, which are fixed at 20, 12 and 20.",
-            "schema": { "type": "integer", "minimum": 1, "default": 50, "maximum": 200 }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The pulse, whole or partial.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Pulse" } }
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CreatedBrand" }
+              }
             }
           },
           "400": { "$ref": "#/components/responses/BadRequest" }
         }
       }
     },
-    "/api/brands/{brandid}/mentions": {
+    "/api/brands/{id}/pulse": {
       "get": {
-        "operationId": "getMentions",
-        "summary": "The enriched mention stream, newest first.",
-        "description": "A bare array, not a MentionBatch envelope. MentionBatch carries credits_used, cache_hits and truncated, which a read out of Postgres does not know.",
+        "tags": ["Pulse"],
+        "operationId": "getBrandPulse",
+        "summary": "Get brand pulse",
+        "description": "The brand's whole current picture in one call: profile, latest run, daily brief, alerts, topics, recent mentions and reply drafts. Seven independent queries, and a query that fails names itself in errors rather than failing the request, so a partial answer is still a 200.\n\nTwo slots are always empty by design. share_of_voice is always null, because no agent output for that type is persisted; the figure to render is brief.numbers.share_of_voice. topics[].top_examples is always an empty array.\n\nThe limit parameter moves the mention slice only. The alert, topic and draft slices are fixed at 20, 12 and 20.",
         "parameters": [
-          { "$ref": "#/components/parameters/brandid" },
+          { "$ref": "#/components/parameters/NgrokSkipBrowserWarning" },
+          { "$ref": "#/components/parameters/BrandIdPath" },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "description": "Default 50, silently capped at 200.",
+            "description": "How many mentions to include. Defaults to 50, capped silently at 200.",
             "schema": { "type": "integer", "minimum": 1, "default": 50, "maximum": 200 }
           }
         ],
         "responses": {
           "200": {
-            "description": "Zero or more enriched mentions. An empty array means the brand has no enriched mentions, not that the query failed.",
+            "description": "The brand's current pulse.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Pulse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/brands/{id}/mentions": {
+      "get": {
+        "tags": ["Mentions"],
+        "operationId": "getMentions",
+        "summary": "List enriched mentions",
+        "description": "The mention stream, newest first. Each element is two levels deep: a mention object and an enrichment object. A DronaHQ Table Grid wants a flat array, so flatten with a JavaScript transformation on the query, for example mention.text and enrichment.sentiment_label.",
+        "parameters": [
+          { "$ref": "#/components/parameters/NgrokSkipBrowserWarning" },
+          { "$ref": "#/components/parameters/BrandIdPath" },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "How many mentions to return. Defaults to 50, capped silently at 200.",
+            "schema": { "type": "integer", "minimum": 1, "default": 50, "maximum": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enriched mentions, newest first. An empty array means the brand has no enriched mentions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -137,34 +150,39 @@
         }
       }
     },
-    "/api/brands/{brandid}/alerts": {
+    "/api/brands/{id}/alerts": {
       "get": {
+        "tags": ["Alerts"],
         "operationId": "getAlerts",
-        "summary": "The alert feed, newest first.",
-        "description": "A bare array, not an AlertSet envelope. AlertSet carries rules_evaluated, which is bp-detector's count and is not stored.",
+        "summary": "List alerts",
+        "description": "The alert feed, newest first. There is no LLM behind an alert, so the evidence array is the entire reason it fired: metric, value, threshold and window. Quote those four rather than saying an AI detected a pattern.",
         "parameters": [
-          { "$ref": "#/components/parameters/brandid" },
+          { "$ref": "#/components/parameters/NgrokSkipBrowserWarning" },
+          { "$ref": "#/components/parameters/BrandIdPath" },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "description": "Default 20, silently capped at 100.",
+            "description": "How many alerts to return. Defaults to 20, capped silently at 100.",
             "schema": { "type": "integer", "minimum": 1, "default": 20, "maximum": 100 }
           },
           {
             "name": "since",
             "in": "query",
             "required": false,
-            "description": "Exclusive. Must be a `created_at` this same route returned earlier, not a clock reading taken in the caller. A browser clock running fast against the database would otherwise skip an alert. RFC 3339.",
+            "description": "Exclusive lower bound on created_at, RFC 3339. Pass back a created_at this route returned earlier, never a browser clock reading: a clock running fast against the database skips an alert.",
             "schema": { "type": "string", "format": "date-time" }
           }
         ],
         "responses": {
           "200": {
-            "description": "Zero or more alerts.",
+            "description": "Alerts, newest first.",
             "content": {
               "application/json": {
-                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Alert" } }
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Alert" }
+                }
               }
             }
           },
@@ -172,66 +190,66 @@
         }
       }
     },
-    "/api/runs/{runid}": {
-      "get": {
-        "operationId": "getRun",
-        "summary": "One run by id.",
-        "parameters": [
-          {
-            "name": "runid",
-            "in": "path",
-            "required": true,
-            "description": "Declared as `:id` in bff/src/routes/runs.ts. Renamed here only because a DronaHQ variable may not contain an underscore and `brandid` and `runid` must not collide.",
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The run.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/RunRecord" } }
-            }
-          },
-          "404": {
-            "description": "No run with that id.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
-            }
-          }
-        }
-      }
-    },
     "/api/runs": {
       "post": {
+        "tags": ["Runs"],
         "operationId": "startRun",
-        "summary": "Start a collection run. The only write path in the BFF.",
-        "description": "The BFF writes nothing itself: it asks bp-orchestrator to run and forwards the RunRecord byte for byte. It publishes nothing to any platform. Spends the brand's Anakin credits and LLM tokens, so a dashboard control that calls this asks for confirmation first.",
+        "summary": "Start a collection run",
+        "description": "Asks bp-orchestrator to collect and enrich. Spends Anakin credits and LLM tokens, so bind this to a button a human presses, never to an auto-running query. Returns the RunRecord the orchestrator produced, forwarded unchanged. A run that comes back with status partial and a populated errors array is a real run that got through some of its sources, and is a 200.\n\nwindow_hours and force are optional and must be omitted rather than sent empty: window_hours 0 is a window of zero hours and the BFF rejects it with a 400.",
+        "parameters": [{ "$ref": "#/components/parameters/NgrokSkipBrowserWarning" }],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/RunRequest" }
+              "schema": { "$ref": "#/components/schemas/StartRunRequest" }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "The run record. A `partial` status with a populated `errors` array is a real run that got through some of its sources, not a failure.",
+            "description": "The run record.",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/RunRecord" } }
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RunRecord" }
+              }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "502": {
-            "description": "bp-orchestrator was unreachable, answered non-2xx, or sent a body the A2A client could not read.",
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/runs/{id}": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "getRun",
+        "summary": "Get a run by id",
+        "description": "One run record by its id. Poll this after startRun to watch status move from running to ok, partial or failed.",
+        "parameters": [
+          { "$ref": "#/components/parameters/NgrokSkipBrowserWarning" },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The run id, as returned by startRun. Bind the DronaHQ variable runid here. DronaHQ variable names must not contain an underscore, so runid and never run_id.",
+            "schema": { "type": "string" },
+            "example": "run_01M2ZC44KQVMW5M2GC816KHWBW"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run record.",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RunRecord" }
+              }
             }
           },
-          "504": {
-            "description": "bp-orchestrator did not answer within ORCHESTRATOR_TIMEOUT_MS, which defaults to 120000.",
+          "404": {
+            "description": "No run with that id.",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
             }
           }
         }
@@ -240,146 +258,115 @@
   },
   "components": {
     "parameters": {
-      "brandid": {
-        "name": "brandid",
+      "NgrokSkipBrowserWarning": {
+        "name": "ngrok-skip-browser-warning",
+        "in": "header",
+        "required": true,
+        "description": "Must be sent on every request. Free ngrok returns an HTML interstitial page to browser-like clients unless this header is present, and DronaHQ would parse that HTML as a failed JSON response.",
+        "schema": { "type": "string", "default": "1" },
+        "example": "1"
+      },
+      "BrandIdPath": {
+        "name": "id",
         "in": "path",
         "required": true,
-        "description": "Declared as `:id` in bff/src/routes/. Named `brandid` here because a DronaHQ variable may not contain an underscore. The demo brand is `brd_demo`.",
+        "description": "The brand id, as returned in the id field of listBrands. The demo brand is brd_demo.",
         "schema": { "type": "string" },
         "example": "brd_demo"
       }
     },
     "responses": {
       "BadRequest": {
-        "description": "A malformed query parameter or body.",
+        "description": "The request was malformed. The message names the offending field.",
         "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
         }
       }
     },
     "schemas": {
       "Error": {
         "type": "object",
-        "properties": { "error": { "type": "string" } },
+        "description": "Every error the BFF returns has this one shape.",
+        "properties": {
+          "error": { "type": "string", "example": "brand_id is required and must be a non-empty string" }
+        },
         "required": ["error"]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true }
+        },
+        "required": ["ok"]
       },
       "Source": {
         "type": "string",
+        "description": "A collection source.",
         "enum": ["x", "reddit", "youtube", "news", "playstore", "appstore", "amazon", "flipkart", "instagram", "web"]
+      },
+      "Channel": {
+        "type": "string",
+        "description": "A Source value, or one of the three reply-only channels.",
+        "enum": ["x", "reddit", "youtube", "news", "playstore", "appstore", "amazon", "flipkart", "instagram", "web", "whatsapp", "email", "statement"]
+      },
+      "SentimentLabel": {
+        "type": "string",
+        "enum": ["negative", "neutral", "positive", "mixed"]
+      },
+      "Emotion": {
+        "type": "string",
+        "enum": ["anger", "joy", "sadness", "fear", "disgust", "surprise", "neutral"]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": ["complaint", "praise", "question", "purchase_intent", "comparison", "spam", "news", "other"]
+      },
+      "RunKind": {
+        "type": "string",
+        "enum": ["onboard", "scheduled", "on_demand", "crisis_replay"]
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": ["running", "ok", "partial", "failed"]
+      },
+      "AlertKind": {
+        "type": "string",
+        "enum": ["spike", "crisis", "influencer_mention", "competitor_move", "review_bomb"]
+      },
+      "Severity": {
+        "type": "string",
+        "enum": ["low", "medium", "high", "critical"]
+      },
+      "AlertStatus": {
+        "type": "string",
+        "enum": ["open", "acked", "snoozed", "resolved"]
+      },
+      "DraftStatus": {
+        "type": "string",
+        "enum": ["draft", "approved", "rejected", "sent"]
       },
       "BrandSummary": {
         "type": "object",
-        "description": "What a brand picker needs. Declared in bff/src/rows.ts, not in contracts.ts, because it is the BFF's own shape and no Go agent emits it. Note the key is `id`, NOT `brand_id`: every other response in this file says brand_id, this one says id.",
+        "description": "The brand picker's shape. Three fields, and the identifier is id, not brand_id.",
         "properties": {
-          "id": { "type": "string", "description": "The brand id. This is what goes into the `brandid` variable." },
-          "name": { "type": "string" },
-          "website": { "type": "string", "description": "Absent when the column is NULL. An absent optional field is an absent key, never a null and never an empty string." }
+          "id": { "type": "string", "example": "brd_demo" },
+          "name": { "type": "string", "example": "Suncoast" },
+          "website": {
+            "type": "string",
+            "description": "Absent, not null, when the brand has no website on record.",
+            "example": "https://suncoast.example.in"
+          }
         },
         "required": ["id", "name"]
-      },
-      "NewBrand": {
-        "type": "object",
-        "description": "The create-brand form. Only name and website are required; the two lists are optional and an omitted list is treated as empty.",
-        "properties": {
-          "name": { "type": "string", "minLength": 1, "description": "Trimmed by the route. Also seeds the brand id, which is a slug of this plus a random 4-character tail." },
-          "website": { "type": "string", "format": "uri", "description": "Must include the scheme and must be http or https. bp-onboarder hands this straight to Anakin's crawler, so a bare domain is a 400 here rather than a 502 from an agent thirty seconds later." },
-          "keywords": { "type": "array", "items": { "type": "string" }, "description": "What the owner typed. Kept either way: these are merged with whatever bp-onboarder finds, case-insensitively, with the typed terms first. Blank entries are dropped." },
-          "competitors": { "type": "array", "items": { "type": "string" }, "description": "Merged with the onboarder's the same way." }
-        },
-        "required": ["name", "website"]
-      },
-      "CreatedBrand": {
-        "type": "object",
-        "properties": {
-          "brand_id": { "type": "string", "description": "Minted by the route from the name plus a random tail. Do not construct this yourself; read it from here." },
-          "onboarder_error": { "type": "string", "description": "Present ONLY when bp-onboarder could not be reached or refused the site. The brand was still created, from the owner's typed keywords alone. A screen that ignores this key tells the owner an agent enriched their profile when it did not." }
-        },
-        "required": ["brand_id"]
-      },
-      "Channel": {
-        "description": "A Source, or one of the three reply-only channels.",
-        "type": "string",
-        "enum": ["x", "reddit", "youtube", "news", "playstore", "appstore", "amazon", "flipkart", "instagram", "web", "whatsapp", "email", "statement"]
-      },
-      "RunRequest": {
-        "type": "object",
-        "description": "window_hours and force are forwarded only when present. Sending window_hours: 0 is not a neutral default in Go, it is a window of zero hours.",
-        "properties": {
-          "brand_id": { "type": "string", "minLength": 1 },
-          "trigger": {
-            "type": "string",
-            "enum": ["onboard", "scheduled", "on_demand", "crisis_replay"],
-            "description": "Anything a person asked for in the chat or on the dashboard is `on_demand`."
-          },
-          "window_hours": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Omit to let bp-orchestrator apply its own default of 24."
-          },
-          "force": {
-            "type": "boolean",
-            "description": "Re-runs a time bucket that already has a run row."
-          }
-        },
-        "required": ["brand_id", "trigger"]
-      },
-      "Pulse": {
-        "type": "object",
-        "properties": {
-          "brand_id": { "type": "string" },
-          "profile": {
-            "nullable": true,
-            "description": "Null when no confirmed brand profile has been written for this brand.",
-            "allOf": [{ "$ref": "#/components/schemas/BrandProfile" }]
-          },
-          "run": {
-            "nullable": true,
-            "description": "Null when the brand has never been run.",
-            "allOf": [{ "$ref": "#/components/schemas/RunRecord" }]
-          },
-          "brief": {
-            "nullable": true,
-            "description": "Null when no daily brief has been generated. When it is null you have none of the five figures in BriefNumbers, and counting the mentions array instead would be substituting a capped recent slice for a period total.",
-            "allOf": [{ "$ref": "#/components/schemas/DailyBrief" }]
-          },
-          "share_of_voice": {
-            "nullable": true,
-            "description": "ALWAYS null. There is no share_of_voice table and no SOV field on RunRecord, so no agent output of this type is persisted for the BFF to read. This is not an error and it adds no entry to `errors`. The share of voice figure that exists is brief.numbers.share_of_voice, which bp-briefer produced. Do not bind a control to this field."
-          },
-          "alerts": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/Alert" },
-            "description": "At most 20, newest first."
-          },
-          "topics": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/Topic" },
-            "description": "At most 12."
-          },
-          "mentions": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/EnrichedMention" },
-            "description": "At most `limit`, default 50, ceiling 200."
-          },
-          "drafts": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/ReplyDraft" },
-            "description": "At most 20. This is the only place reply drafts are served; there is no /drafts route."
-          },
-          "errors": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "One entry per failed query, formatted `slot: message`, where slot is one of profile, run, brief, alerts, topics, mentions, drafts. Empty means every slot above is complete."
-          }
-        },
-        "required": ["brand_id", "profile", "run", "brief", "share_of_voice", "alerts", "topics", "mentions", "drafts", "errors"]
       },
       "BrandVoice": {
         "type": "object",
         "properties": {
-          "tone": { "type": "string" },
-          "language": { "type": "string" },
-          "signature": { "type": "string" },
+          "tone": { "type": "string", "example": "warm, direct, no corporate filler" },
+          "language": { "type": "string", "example": "English with light Hinglish if the mention is Hinglish" },
+          "signature": { "type": "string", "example": "- Team Suncoast" },
           "do_not_say": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["tone", "language", "do_not_say"]
@@ -387,8 +374,8 @@
       "BrandProfile": {
         "type": "object",
         "properties": {
-          "brand_id": { "type": "string" },
-          "name": { "type": "string" },
+          "brand_id": { "type": "string", "example": "brd_demo" },
+          "name": { "type": "string", "example": "Suncoast" },
           "website": { "type": "string" },
           "keywords": { "type": "array", "items": { "type": "string" } },
           "hashtags": { "type": "array", "items": { "type": "string" } },
@@ -396,15 +383,19 @@
           "competitors": { "type": "array", "items": { "type": "string" } },
           "sources": { "type": "array", "items": { "$ref": "#/components/schemas/Source" } },
           "negative_keywords": { "type": "array", "items": { "type": "string" } },
-          "source_handles": { "type": "object", "additionalProperties": { "type": "string" } },
+          "source_handles": {
+            "type": "object",
+            "description": "Source name to the brand's handle or listing id on that source.",
+            "additionalProperties": { "type": "string" }
+          },
           "voice": { "$ref": "#/components/schemas/BrandVoice" },
-          "version": { "type": "integer" }
+          "version": { "type": "integer", "example": 1 }
         },
         "required": ["brand_id", "name", "keywords", "hashtags", "products", "competitors", "sources", "negative_keywords", "source_handles", "voice", "version"]
       },
       "Engagement": {
         "type": "object",
-        "description": "The column defaults to '{}', so a row written without engagement yields an object with no counts rather than four zeros. Treat a missing key as unknown, not as 0.",
+        "description": "Forwarded exactly as stored. A mention written without engagement carries an object with no counts, not four zeros.",
         "properties": {
           "likes": { "type": "integer" },
           "replies": { "type": "integer" },
@@ -426,13 +417,10 @@
           "lang": { "type": "string" },
           "posted_at": { "type": "string", "format": "date-time" },
           "engagement": { "$ref": "#/components/schemas/Engagement" },
-          "rating": {
-            "type": "number",
-            "description": "Absent when the source is not a review source. Absent and 0 are different facts: 0 is a real one-star average and the review_bomb rule fires on it."
-          },
+          "rating": { "type": "number" },
           "matched_keyword": { "type": "string" },
           "content_hash": { "type": "string" },
-          "raw": { "type": "object" }
+          "raw": { "type": "object", "additionalProperties": true }
         },
         "required": ["id", "brand_id", "source", "external_id", "author_followers", "text", "lang", "posted_at", "engagement", "content_hash"]
       },
@@ -440,33 +428,21 @@
         "type": "object",
         "properties": {
           "mention_id": { "type": "string" },
-          "sentiment": { "type": "number", "description": "A score, not a label. The label is sentiment_label." },
-          "sentiment_label": {
-            "type": "string",
-            "enum": ["negative", "neutral", "positive", "mixed"]
-          },
-          "emotion": {
-            "type": "string",
-            "enum": ["anger", "joy", "sadness", "fear", "disgust", "surprise", "neutral"]
-          },
-          "intent": {
-            "type": "string",
-            "enum": ["complaint", "praise", "question", "purchase_intent", "comparison", "spam", "news", "other"]
-          },
+          "sentiment": { "type": "number", "description": "Signed score. Negative is negative sentiment." },
+          "sentiment_label": { "$ref": "#/components/schemas/SentimentLabel" },
+          "emotion": { "$ref": "#/components/schemas/Emotion" },
+          "intent": { "$ref": "#/components/schemas/Intent" },
           "aspects": { "type": "array", "items": { "type": "string" } },
-          "is_about_brand": {
-            "type": "boolean",
-            "description": "False means the mention matched a keyword but is not about this brand. Filter these out of any brand-level summary; they are not deleted upstream."
-          },
+          "is_about_brand": { "type": "boolean" },
           "about_competitor": { "type": "string" },
           "model": { "type": "string" },
-          "cost_paise": { "type": "number" }
+          "cost_paise": { "type": "number", "description": "Paise, fractional. A float on the wire, not an integer." }
         },
         "required": ["mention_id", "sentiment", "sentiment_label", "emotion", "intent", "aspects", "is_about_brand", "model", "cost_paise"]
       },
       "EnrichedMention": {
         "type": "object",
-        "description": "Two levels deep. A DronaHQ Table Grid binds directly to a flat array of objects, so this needs flattening before it reaches the grid. See dronahq/dashboard/build-spec.md.",
+        "description": "Two levels deep. Flatten before binding to a Table Grid.",
         "properties": {
           "mention": { "$ref": "#/components/schemas/Mention" },
           "enrichment": { "$ref": "#/components/schemas/Enrichment" }
@@ -475,13 +451,13 @@
       },
       "AlertEvidence": {
         "type": "object",
-        "description": "One statistical fact that fired the alert. Forwarded verbatim, never summarised. This is what the repo rule 'alerts ship the numbers that fired them' means in practice: there is no language model in bp-detector, so these four fields ARE the reason.",
+        "description": "One statistical fact that fired an alert. Forwarded verbatim, never summarised.",
         "properties": {
-          "metric": { "type": "string" },
-          "value": { "type": "number", "description": "What was observed." },
-          "threshold": { "type": "number", "description": "What it had to cross." },
-          "window": { "type": "string", "description": "What it was measured over." },
-          "detail": { "type": "string" }
+          "metric": { "type": "string", "example": "volume_zscore" },
+          "value": { "type": "number", "example": 66.9 },
+          "threshold": { "type": "number", "example": 3 },
+          "window": { "type": "string", "example": "1h" },
+          "detail": { "type": "string", "example": "13 mentions against a mean of 0.0, std 0.2, over 14 days" }
         },
         "required": ["metric", "value", "threshold", "window"]
       },
@@ -490,34 +466,33 @@
         "properties": {
           "id": { "type": "string" },
           "brand_id": { "type": "string" },
-          "kind": {
-            "type": "string",
-            "enum": ["spike", "crisis", "influencer_mention", "competitor_move", "review_bomb"]
-          },
-          "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-          "title": { "type": "string" },
+          "kind": { "$ref": "#/components/schemas/AlertKind" },
+          "severity": { "$ref": "#/components/schemas/Severity" },
+          "title": { "type": "string", "example": "Negative surge on reddit" },
           "why": { "type": "string" },
           "evidence": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/AlertEvidence" },
-            "description": "One entry per term in the rule that fired."
+            "description": "The entire reason the alert fired. There is no LLM behind it.",
+            "items": { "$ref": "#/components/schemas/AlertEvidence" }
           },
           "sample_mentions": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Mention" },
-            "description": "Can be shorter than the detector's original sample: an id whose mention is no longer stored is dropped rather than stood in for, because a placeholder mention on a crisis alert is a fabricated quote."
+            "description": "Whole mentions, resolved from stored ids. An id with no surviving mention is dropped rather than stood in for.",
+            "items": { "$ref": "#/components/schemas/Mention" }
           },
-          "status": { "type": "string", "enum": ["open", "acked", "snoozed", "resolved"] },
-          "dedupe_key": {
+          "status": { "$ref": "#/components/schemas/AlertStatus" },
+          "dedupe_key": { "type": "string" },
+          "created_at": {
             "type": "string",
-            "description": "`<kind>:<source>:<hour_bucket>`, so a sustained crisis produces one alert per hour rather than one per run."
-          },
-          "created_at": { "type": "string", "format": "date-time" }
+            "format": "date-time",
+            "description": "Pass this value back as the since parameter to poll for newer alerts."
+          }
         },
         "required": ["id", "brand_id", "kind", "severity", "title", "why", "evidence", "sample_mentions", "status", "dedupe_key", "created_at"]
       },
       "ReplyDraft": {
         "type": "object",
+        "description": "A suggested reply. Nothing in this system posts it. There is no send route and no approve route.",
         "properties": {
           "id": { "type": "string" },
           "alert_id": { "type": "string" },
@@ -526,15 +501,11 @@
           "text": { "type": "string" },
           "tone": { "type": "string" },
           "do_not_say": { "type": "array", "items": { "type": "string" } },
-          "status": {
-            "type": "string",
-            "enum": ["draft", "approved", "rejected", "sent"],
-            "description": "`sent` exists in the enumeration. Nothing in this repo sets it by sending, because there is no posting code path anywhere in BrandPulse."
-          },
+          "status": { "$ref": "#/components/schemas/DraftStatus" },
           "requires_human_approval": {
             "type": "boolean",
-            "enum": [true],
-            "description": "Always true, on every serialisation. ReplyDraft.MarshalJSON in Go emits it unconditionally and there is no struct field and no column behind it, so no serialisation of this type can claim otherwise."
+            "description": "Always true. It is emitted unconditionally and there is no column behind it.",
+            "example": true
           }
         },
         "required": ["id", "channel", "text", "tone", "do_not_say", "status", "requires_human_approval"]
@@ -546,37 +517,52 @@
           "brand_id": { "type": "string" },
           "window_start": { "type": "string", "format": "date-time" },
           "window_end": { "type": "string", "format": "date-time" },
-          "label": { "type": "string" },
+          "label": { "type": "string", "example": "refund delays" },
           "summary": { "type": "string" },
-          "size": { "type": "integer", "description": "How many mentions are in the cluster." },
+          "size": { "type": "integer", "description": "How many mentions fell into this topic.", "example": 4 },
           "sentiment_mix": {
             "type": "object",
-            "description": "Keyed by sentiment label. A label with no mentions has no key rather than a zero.",
+            "description": "Sentiment label to its count or share within the topic. Keys are a subset of the SentimentLabel values.",
             "additionalProperties": { "type": "number" }
           },
           "top_examples": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Mention" },
-            "description": "ALWAYS EMPTY from this API. 'At most 3 mentions, chosen by engagement' is bp-clusterer's rule and it has no column, so the BFF picking three would be the BFF inventing the clusterer's output. Do not bind a control to this array; join mention_ids against the mentions array instead."
+            "description": "Always an empty array. The clusterer's choice of examples has no column, so the BFF does not invent one.",
+            "items": { "$ref": "#/components/schemas/Mention" }
           },
-          "trend": {
-            "type": "number",
-            "description": "This window's size over the prior window's. 1.0 is flat and is also the value when there is no prior window. Never 0: a zero trend means nobody set the field."
-          },
+          "trend": { "type": "number" },
           "mention_ids": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["id", "brand_id", "window_start", "window_end", "label", "summary", "size", "sentiment_mix", "top_examples", "trend", "mention_ids"]
       },
+      "ShareOfVoice": {
+        "type": "object",
+        "description": "Declared because the contract declares it. The pulse always returns null here; render brief.numbers.share_of_voice instead.",
+        "properties": {
+          "brand_id": { "type": "string" },
+          "window_start": { "type": "string", "format": "date-time" },
+          "window_end": { "type": "string", "format": "date-time" },
+          "brand_share": { "type": "number" },
+          "competitor_shares": { "type": "object", "additionalProperties": { "type": "number" } },
+          "by_source": {
+            "type": "object",
+            "additionalProperties": { "type": "object", "additionalProperties": { "type": "number" } }
+          },
+          "total_mentions": { "type": "integer" }
+        },
+        "required": ["brand_id", "window_start", "window_end", "brand_share", "competitor_shares", "by_source", "total_mentions"]
+      },
       "BriefNumbers": {
         "type": "object",
         "properties": {
-          "mentions": { "type": "integer" },
-          "mentions_delta_pct": { "type": "number" },
-          "sentiment_avg": { "type": "number" },
-          "negative_share": { "type": "number" },
+          "mentions": { "type": "integer", "example": 57 },
+          "mentions_delta_pct": { "type": "number", "example": 0 },
+          "sentiment_avg": { "type": "number", "example": 0.0175 },
+          "negative_share": { "type": "number", "example": 3.51 },
           "share_of_voice": {
             "type": "number",
-            "description": "The only share of voice figure this API serves. Pulse.share_of_voice is always null."
+            "description": "The only share of voice figure this API serves. Pulse.share_of_voice is always null.",
+            "example": 100
           }
         },
         "required": ["mentions", "mentions_delta_pct", "sentiment_avg", "negative_share", "share_of_voice"]
@@ -587,43 +573,143 @@
           "brand_id": { "type": "string" },
           "period_start": { "type": "string", "format": "date-time" },
           "period_end": { "type": "string", "format": "date-time" },
-          "headline": { "type": "string" },
+          "headline": { "type": "string", "example": "Brand mentions were quiet, with negative sentiment on Reddit concerns." },
           "numbers": { "$ref": "#/components/schemas/BriefNumbers" },
           "top_topics": { "type": "array", "items": { "$ref": "#/components/schemas/Topic" } },
           "alerts": { "type": "array", "items": { "$ref": "#/components/schemas/Alert" } },
-          "competitor_watch": { "type": "array", "items": { "type": "string" } },
+          "competitor_watch": {
+            "type": "array",
+            "nullable": true,
+            "description": "Null, not an empty array, when the briefer named no competitor. Verified against the live API.",
+            "items": { "type": "string" }
+          },
           "suggested_actions": { "type": "array", "items": { "type": "string" } },
-          "markdown": { "type": "string", "description": "The full brief." },
-          "whatsapp_short": {
-            "type": "string",
-            "description": "600 characters or fewer, no tables and no markdown links. Present on the wire whether or not WhatsApp is switched on; WhatsApp is out of the MVP."
-          }
+          "markdown": { "type": "string" },
+          "whatsapp_short": { "type": "string" }
         },
-        "required": ["brand_id", "period_start", "period_end", "headline", "numbers", "top_topics", "alerts", "competitor_watch", "suggested_actions", "markdown", "whatsapp_short"]
+        "required": ["brand_id", "period_start", "period_end", "headline", "numbers", "top_topics", "alerts", "suggested_actions", "markdown", "whatsapp_short"]
       },
       "RunRecord": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "brand_id": { "type": "string" },
-          "kind": {
-            "type": "string",
-            "enum": ["onboard", "scheduled", "on_demand", "crisis_replay"]
-          },
-          "time_bucket": { "type": "string" },
+          "id": { "type": "string", "example": "run_01M2ZC44KQVMW5M2GC816KHWBW" },
+          "brand_id": { "type": "string", "example": "brd_demo" },
+          "kind": { "$ref": "#/components/schemas/RunKind" },
+          "time_bucket": { "type": "string", "example": "2026-09-20" },
           "started_at": { "type": "string", "format": "date-time" },
           "finished_at": { "type": "string", "format": "date-time", "description": "Absent while the run is still going." },
-          "status": { "type": "string", "enum": ["running", "ok", "partial", "failed"] },
-          "credits_used": { "type": "integer", "description": "Anakin credits. 0 is a run that has not spent yet, not a missing value." },
+          "status": { "$ref": "#/components/schemas/RunStatus" },
+          "credits_used": { "type": "integer" },
           "tokens_used": { "type": "integer" },
-          "cost_paise": { "type": "number", "description": "Paise. Divide by 100 for rupees." },
+          "cost_paise": { "type": "number", "description": "Paise, fractional. A float on the wire, not an integer." },
           "sources_attempted": { "type": "array", "items": { "$ref": "#/components/schemas/Source" } },
           "sources_skipped": { "type": "array", "items": { "$ref": "#/components/schemas/Source" } },
-          "degraded_reason": { "type": "string", "description": "Present when sources_skipped is non-empty." },
+          "degraded_reason": { "type": "string", "description": "Present when the orchestrator dropped sources, with the reason it dropped them." },
           "mentions_collected": { "type": "integer" },
           "errors": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["id", "brand_id", "kind", "time_bucket", "started_at", "status", "credits_used", "tokens_used", "cost_paise", "sources_attempted", "sources_skipped", "mentions_collected", "errors"]
+      },
+      "Pulse": {
+        "type": "object",
+        "description": "One call, seven slots. A slot whose query failed holds its empty value and names itself in errors.",
+        "properties": {
+          "brand_id": { "type": "string", "example": "brd_demo" },
+          "profile": {
+            "allOf": [{ "$ref": "#/components/schemas/BrandProfile" }],
+            "nullable": true
+          },
+          "run": {
+            "allOf": [{ "$ref": "#/components/schemas/RunRecord" }],
+            "nullable": true,
+            "description": "The latest run for this brand, or null if it has never run."
+          },
+          "brief": {
+            "allOf": [{ "$ref": "#/components/schemas/DailyBrief" }],
+            "nullable": true
+          },
+          "share_of_voice": {
+            "allOf": [{ "$ref": "#/components/schemas/ShareOfVoice" }],
+            "nullable": true,
+            "description": "Always null. Read brief.numbers.share_of_voice instead."
+          },
+          "alerts": {
+            "type": "array",
+            "description": "Newest first, fixed at 20 regardless of limit.",
+            "items": { "$ref": "#/components/schemas/Alert" }
+          },
+          "topics": {
+            "type": "array",
+            "description": "Fixed at 12 regardless of limit.",
+            "items": { "$ref": "#/components/schemas/Topic" }
+          },
+          "mentions": {
+            "type": "array",
+            "description": "Newest first. This is the slice the limit parameter moves.",
+            "items": { "$ref": "#/components/schemas/EnrichedMention" }
+          },
+          "drafts": {
+            "type": "array",
+            "description": "Fixed at 20 regardless of limit.",
+            "items": { "$ref": "#/components/schemas/ReplyDraft" }
+          },
+          "errors": {
+            "type": "array",
+            "description": "One entry per query that failed. Empty means every slot above is complete.",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["brand_id", "profile", "run", "brief", "share_of_voice", "alerts", "topics", "mentions", "drafts", "errors"]
+      },
+      "CreateBrandRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Required, non-empty.", "example": "Acme" },
+          "website": {
+            "type": "string",
+            "description": "Required. Must include the scheme and it must be http or https. A bare acme.example is a 400.",
+            "example": "https://acme.example"
+          },
+          "keywords": {
+            "type": "array",
+            "description": "Optional. Kept alongside whatever the onboarder finds, case-insensitively deduplicated, typed terms first.",
+            "items": { "type": "string" }
+          },
+          "competitors": {
+            "type": "array",
+            "description": "Optional.",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["name", "website"]
+      },
+      "CreatedBrand": {
+        "type": "object",
+        "properties": {
+          "brand_id": { "type": "string", "example": "brd_acme_4f2a" },
+          "onboarder_error": {
+            "type": "string",
+            "description": "Present only when bp-onboarder could not be reached or refused the site. The brand was still created, from the typed keywords alone. Show this, or the screen claims an agent enriched a profile that nothing enriched."
+          }
+        },
+        "required": ["brand_id"]
+      },
+      "StartRunRequest": {
+        "type": "object",
+        "properties": {
+          "brand_id": { "type": "string", "description": "Required, non-empty.", "example": "brd_demo" },
+          "trigger": {
+            "allOf": [{ "$ref": "#/components/schemas/RunKind" }],
+            "description": "Required. Anything outside the four values is a 400 listing them."
+          },
+          "window_hours": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional. Omit rather than sending 0: a non-positive integer is a 400, and the orchestrator applies its own default when the key is absent."
+          },
+          "force": { "type": "boolean", "description": "Optional." }
+        },
+        "required": ["brand_id", "trigger"]
       }
     }
   }
