@@ -14,6 +14,21 @@ statistical rules, drafts a guardrailed reply a human approves, and writes a
 brief. It is for the brand doing ₹40 lakh a month with no social team and no
 ₹48,000 a month to spend on finding out.
 
+## Demo
+
+[![Watch the BrandPulse demo](docs/assets/demo-video-thumbnail.jpg)](https://drive.google.com/file/d/1F1i0sBGRPq4C5Ga91Eb0EULNBQdQrR2Q/view?usp=sharing)
+
+Click the frame above, or open it directly on
+[Google Drive](https://drive.google.com/file/d/1F1i0sBGRPq4C5Ga91Eb0EULNBQdQrR2Q/view?usp=sharing).
+The walkthrough covers all three platforms doing real work: nine Go A2A agents
+built for Nasiko, Anakin as the entire acquisition layer, and DronaHQ as both
+the brand owner's chat agent and the ops dashboard.
+
+GitHub strips iframes from a README, so the image is a still committed at
+[`docs/assets/demo-video-thumbnail.jpg`](docs/assets/demo-video-thumbnail.jpg)
+rather than a player. If the video link ever moves, that image and the two
+links above are the only places to change.
+
 ## Two statements that are load-bearing
 
 **Public data only.** Every source is a public API, a public review feed, or a
