@@ -279,6 +279,12 @@ all 4 of Mamaearth's live drafts do, as do all 9 of Suncoast's. Show that field.
 numbers are the entire reason an alert exists. "Our AI detected unusual activity"
 is a false statement about this system.
 
+**That array is capped at 20.** `ALERT_LIMIT` in `bff/src/routes/pulse.ts` is
+the ceiling, so Suncoast's 29 alerts arrive as 20 through `pulse`. If you want a
+count on screen, bind it to the array you rendered, or add a fourth query
+against `getAlerts` with `limit=100` and count that. A tile captioned "29" above
+a table holding 20 rows is the kind of thing a judge notices.
+
 ---
 
 ## If the app is blank

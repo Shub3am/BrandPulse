@@ -91,16 +91,28 @@ was written.
 |---|---|
 | `GET /health` | `{"ok":true}` |
 | `GET /api/brands` | 3 brands: `brd_lumeo_dbe9` (Lumeo), `brd_mamaearth_ae6f` (Mamaearth), `brd_demo` (Suncoast) |
+| `GET /api/brands/brd_mamaearth_ae6f/mentions?limit=200` | 162 mentions: web 80, news 61, reddit 21 |
+| `GET /api/brands/brd_mamaearth_ae6f/pulse?limit=50` | mentions 162, negative share 4.32, avg sentiment 0.0898, share of voice 94.83. 4 topics, 20 alerts, 4 drafts, `errors` empty |
 | `GET /api/brands/brd_demo/mentions?limit=200` | 97 mentions: reddit 32, web 25, x 14, instagram 13, news 13 |
-| `GET /api/brands/brd_demo/alerts?limit=100` | 29 alerts, 3 of them critical crisis alerts |
-| `GET /api/brands/brd_demo/pulse` | 4 topics, 9 reply drafts, a brief, 20 alerts, `share_of_voice` null |
+| `GET /api/brands/brd_demo/alerts?limit=100` | 29 alerts: 15 medium, 9 high, 3 critical, 2 low |
+| `GET /api/brands/brd_demo/pulse?limit=50` | mentions 97, negative share 43.3, avg sentiment -0.33, share of voice 100. 4 topics, 20 alerts, 9 drafts |
 
-**Demo on `brd_demo`, name Suncoast.** It is the only brand with mentions in it.
+**Two brands carry data.** `brd_mamaearth_ae6f` (Mamaearth) is the build target
+and `brd_demo` (Suncoast) is the crisis fallback, per "The demo brand" above.
 `brd_lumeo_dbe9` has a profile, a failed run and zero mentions, and the roster
 grows whenever anyone calls `createBrand`.
 
-Data can be momentarily empty while a collection run is in flight. The demo brand
-went from 0 to 97 mentions in about thirty seconds while these guides were being
+**The pulse caps its alert array at 20.** `ALERT_LIMIT` in
+`bff/src/routes/pulse.ts` is the ceiling, so Suncoast's 29 alerts arrive as 20
+through `getBrandPulse` and as all 29 through `getAlerts`. A screen reading the
+pulse and captioned "29 alerts" is wrong on camera. Read the count off the array
+you actually bound, or call `getAlerts`.
+
+`share_of_voice` at the top level of the pulse is `null` on both brands, always,
+by design. The real figure is `brief.numbers.share_of_voice`.
+
+Data can be momentarily empty while a collection run is in flight. Suncoast went
+from 0 to 97 mentions in about thirty seconds while these guides were being
 written. If the pulse comes back with empty arrays, wait a minute and curl again.
 
 ## The rules these front ends must not break
