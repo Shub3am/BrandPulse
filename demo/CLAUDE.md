@@ -21,6 +21,7 @@ Agent internals. Everything here goes through the orchestrator or the database.
 | `crisis/` | The synthetic corpus itself, importable. Rows only, not a command. |
 | `record/` | The one live Anakin recording session. B2 only. |
 | `run_demo.sh` | The full flow. `--reset` reseeds, `--live` adds the live call. |
+| `DEMO_SCRIPT.md` | The recording kit: preflight, the 90 second shot list, the verified numbers to quote, where Nasiko, Anakin and DronaHQ are each visibly load-bearing, and the hazards. Written for whoever is holding the camera, not for this module's maintainer. |
 
 Each command is its own `package main`. The three under `demo/cmd/` run as
 `go run ./demo/cmd/seed`; the recorder sits beside them at `demo/record` and
